@@ -1,0 +1,5 @@
+#!/bin/tcsh
+
+g++ -o LZMW -O4 -std=c++0x -ggdb -Wall -DNDEBUG LZMW.C
+#g++ -o LZMW -O0 -std=c++0x -ggdb -Wall LZMW.C
+
