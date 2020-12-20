@@ -390,7 +390,17 @@ public:
 class TwoByteContext
 {
 private:
+  struct PerPair
+  {
+    ByteCounter byteCounter;
+    int64_t tried;
+    int64_t matched;
+    char const *lastIndex;
+    PerPair() : tried(0), matched(0), lastIndex(NULL) { }
+  };
+  
 public:
+  
 };
 
 class Monitor 
