@@ -65,7 +65,7 @@ We use those statistics to set the probabilities.
 ### Whole Strings
 There is also an option to copy an entire string from the past, instead of just copying a single byte at a time.
 
-This is based on some of my previous projects.  
+This is based on some of my previous projects.
 These were inspired by LZ78 algorithm.
 When we see an *interesting* string in the input we tag it and put it into a table.
 I can recall that entire string with a single number.
