@@ -73,3 +73,81 @@ I can recall that entire string with a single number.
 So far this hasn't produced strong results.
 However, it is interesting how easily this can be grafted onto the rest of the program.
 I think a cleaned up version of this algorithm could be very powerful.
+
+## LZMW.C
+
+This was my first serious attempt at a complete compression program.
+I learned some good things from here.
+### LZ78
+LZ78 and related schemes can do good work.
+They pick out interesting strings that you can reference later very cheaply.
+LZ77 would offer more strings, but then you have to use more bits to specify which one you want.
+### Multi Pass
+This program only works because the compressor makes multiple passes through the input file.
+I use some simple variations of LZ78 to start the process of picking strings.
+Then I see which ones are actually used.
+When I finally send data to entropy encoder, I send special commands, like "save this string in the table."
+Or "delete that string that you just used."
+
+It's still cheap to use a back reference.
+We are sending very simple messages, like copy or delete what you were just working with.
+The position is obvious from context.
+The message is basically "here" rather than "go back 122 bytes".
+
+Deleting strings after their last use saved a lot of bytes.
+Again, we are emitting such a simple instruction that costs very little.
+So each time we look back at the table, it is smaller and a reference into it costs less.
+### Control vs Data
+Another amazing part was when I split up the control signals.
+
+The compressed file is a collection of commands.
+E.g. Save the last interesting string or copy a string from our list.
+Originally any of these was valid at any time.
+
+I quickly saw that some combinations made no sense.
+If you just deleted a string from the list, you will never say to save the last interesting string.
+You always do the saving before the deleting.
+
+Just seperating the print command from all the others did a lot.
+(The print command copies a string from the table to the output.
+It is by far the most command command.)
+Eventually I made a complete state machine saying what was and wasn't legal at any time.
+That helped even more.
+
+### MRU
+Another huge improvement case when I changed the list of strings into an MRU list.
+
+Originally the first string we saved was in position 0, the second was in position 1, etc.
+The assumption was that some strings would be used a lot, and others only once or twice, and the entropy encoder would eat that stuff up.
+
+However, reordering the list made it much better for the entropy encoder.
+Any time you add a new string, that gets pushed into index 0.
+And time you use an existing string, it gets moved back to index 0.
+Any time you delete a string, all the others move up.
+Low numbered indexes were used so much more often than any specific string from before we added the MRU.
+
+This should also help in a second way.
+If you look at a histogram to say how often each index is used, it seems to follow Zipf's law.
+Without the MRU the histogram was random and you had to encode the frequencies in the file very explicitly.
+It seems like you could give a few numbers to describe the MRU's histogram, and thus encode it very easily.
+I never actually got that step to work, for some reason.
+I could never get my estimate good enough without writing a lot of metadata.
+
+### Huffman Trees vs rANS
+rANS is very easy to use and the results are very high quality.
+It feels good that it is so precise.
+And the results show.
+
+When I first started tweaking the control data, I was still using Huffman trees.
+That was a lot more work as I tried to do add all types of smarts.
+And the Huffman tree would only take that so far as it's not very precise.
+With rANS I don't have to treat the control logic as a special thing.
+rANS works really well with a 1% chance of this, and a 33% chance of that...
+
+### Memory Hog
+The worst part of this program is that it uses so much memory.
+I tried some tests to see what would happen if we didn't save things as long, or didn't save as many things.
+Those changes always caused the compression to get worse.
+I never found a good happy medium.
+
+Clearly we need to break the file into blocks or something!
