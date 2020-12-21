@@ -168,3 +168,34 @@ While this was a step in the right direction, it never produced particularly goo
 The good parts were good.
 But the program got too dumb.
 The next obvious thought was a compromise:  limited look ahead.
+
+## LzBlock.C
+This was forked from LZMW.C but inspired by LzStream.C
+
+I used the same basic idea as LZMW.
+I identify interesting strings, to reduce the number of things we might try to reference.
+I use limited look ahead to see which of those strings will definitely be used.
+I record commands in the output file to say which strings should be saved.
+
+Some strings will fall off the end.
+I have a way to reorder to the list, in case I know that a string is about to be lost and I will need it soon.
+At the end of the block we leave the string list in place.
+Within a block we carefully curate the strings.
+Between blocks we hope for the best, and typically do well.
+
+This program had some interesting results.
+Furter research in this direction is warranted.
+
+The details of the block structure are currently quite clunky.
+Sometimes we get to a point where we probably should have ended the block sooner.
+There's no obvious way to make that decision until its too late.
+Perhaps I should have been more flexible with the table size.
+Shoot for 2k entries, but if it gets a little longer, that's okay.
+
+One thing was clear.
+Short strings are important.
+I love copying long strings.
+And I don't want to stop copying long strings.
+But we need an efficient way to copy short strings.
+This was one of the big influences that made me start Analyze3.C.
+That program is aware of longer strings, but heavily focused on 3 bytes at a time.
