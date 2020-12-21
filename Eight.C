@@ -64,6 +64,14 @@
  * the difference wasn't as big.  It's tempting to look at recent history
  * to help us, but I'm not sure how.
  *
+ * The basic statistics are easy to capture.  An array from 0 to 8 of pairs
+ * of numbers.  For each number of bytes of context, how many times did we
+ * match exactly this number of bytes, and how many of those times did the
+ * next character match.  Prime them all to say 1 of 2 or something like
+ * that.  For the compressor this is very little effort.  For the decompressor
+ * we'd have a make a second pass through the file.  The decompressor needs to
+ * review all of the possible matches before it knows the next value.
+ *
  * Possible optimization:  You don't have to walk through the history one
  * byte at a time.  I can't remember the name of the algorithm, but there are
  * tricks to jump back further, faster.
@@ -90,6 +98,12 @@
  * spaces and try again.  Either way you have no idea what comes next, and it
  * might be a match of 0.  So we're just choosing to skip some of these.  As
  * long and the encoder and decoder are consistent, it will work.
+ *
+ * Optimization:  When compressing the data, we don't really need an array
+ * of 256 numbers.  We only need 3 numbers.  What's the weighted total of all
+ * bytes before the one we want to encode?  What's the weighed total for the
+ * byte we intend to encode?  What's the weighted total for the bytes after
+ * the one we want to encode?  The decompressor will need the full array.
  */
 
 int main(int, char **)
@@ -100,9 +114,9 @@ int main(int, char **)
   {
     std::cout<<__builtin_clzl(item)<<" "<<std::bitset<64>(item)<<" "<<item<<std::endl;
   }
-  // Interesting.  0 returns 63, just like 1 does.  I'd expect it to be 64.
+  // When I set -O4 __builtin_clzl(0) returns 64.
+  // When I set -O0 __builtin_clzl(0) returns 63.
+  // 64 is the answer I want!
   // Seems like I read something like this once, but I can't find it now.
   // Like this is common, but not 100% portable‽
-  // Crazy!  I just ran this again, and now 0 returns 64.  I can't find my
-  // previous run, so I can't verify that.  But I'm 99% sure it was 63!
 }
