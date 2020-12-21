@@ -4,19 +4,13 @@
 #include <set>
 #include <iostream>
 #include <string>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <string.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <sys/mman.h>
 #include <assert.h>
 #include <cmath>
 
+#include "File.h"
 
-// g++ -o a3 -O4 -ggdb -std=c++0x -Wall Analyze3.C
-// g++ -o a3 -O0 -ggdb -std=c++0x -Wall Analyze3.C
+// g++ -o a3 -O4 -ggdb -std=c++0x -Wall Analyze3.C File.C
 
 /* The focus of this program is on the entropy encoder.  We want to do a really
  * good job of guessing the next letter.
@@ -99,23 +93,6 @@
  */
 
 
-// Value is always computed.  We also call assert(value) if assertions are
-// enabled.  Value is discarded either way.  You do not get a warning either
-// way.  This is useful when (a) a function has a side effect (b) the function
-// returns true on success, and (c) failure seems unlikely, but we still want
-// to check sometimes.
-template < class T >
-void assertTrue(T const &value)
-{
-  assert(value);
-}
-
-template < class T >
-void assertFalse(T const &value)
-{ 
-  assert(!value);
-}
-
 
 // The input is the probability of something happening.  The output is the
 // cost in bits to represent this with an ideal entropy encoder.  We use this
@@ -124,80 +101,6 @@ void assertFalse(T const &value)
 double pCostInBits(double ratio)
 {
   return -std::log2(ratio);
-}
-
-// For simpliciy and performance, use mmap() to read the entire file into
-// memory.  This implementation is lacking a few things.  We can't handle
-// streaming data / pipes.  The file size is limited.  These have nothing to
-// do with the compressions algorithm.  You could make another implementation
-// which handles those cases better.
-class File
-{
-private:
-  char const *_begin;
-  char const *_end;
-  std::string _errorMessage;
-public:
-  File(char const *name);
-  ~File();
-  File(const File&) =delete;
-  void operator=(const File&) =delete;
-
-  char const *begin() const { return _begin; }
-  char const *end() const { return _end; } // Standard STL:  Stop before here.
-  size_t size() const { return _end - _begin; }
-  bool valid() const { return _begin; }
-  std::string const &errorMessage() const { return _errorMessage; }
-};
-
-File::File(char const *name) : _begin(NULL), _end(NULL)
-{
-  int handle = open(name, O_RDONLY);
-  if (handle < 0)
-  {
-    _errorMessage = strerror(errno);
-    _errorMessage += " open(“";
-    _errorMessage += name;
-    _errorMessage += "”)";
-    return;
-  }
-  off_t length = lseek(handle, 0, SEEK_END);
-  if (length == (off_t)-1)
-  {
-    _errorMessage = strerror(errno);
-    _errorMessage += " lseek(“";
-    _errorMessage += name;
-    _errorMessage += "”)";
-    close(handle);
-    return;
-  }
-  void *address = mmap(NULL, length, PROT_READ, MAP_SHARED, handle, 0);
-  if (address == (void *)-1)
-  {
-    _errorMessage = strerror(errno);
-    _errorMessage += " mmap(“";
-    _errorMessage += name;
-    _errorMessage += "”)";
-    close(handle);
-    return;
-  }
-  close(handle);
-  int madviseResult = madvise(address, length, MADV_SEQUENTIAL);
-  if (madviseResult)
-  {
-    _errorMessage = strerror(errno);
-    _errorMessage += " madvise(MADV_SEQUENTIAL)";
-    assertFalse(munmap(address, length));
-    return;
-  }
-  _begin = (char const *)address;
-  _end = _begin + length;
-}
-
-File::~File()
-{
-  if (valid())
-    assertFalse(munmap((void *)begin(), size()));
 }
 
 
