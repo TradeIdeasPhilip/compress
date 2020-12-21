@@ -151,3 +151,20 @@ Those changes always caused the compression to get worse.
 I never found a good happy medium.
 
 Clearly we need to break the file into blocks or something!
+## LzStream.C
+This was an attempt to make LZMW.C less of a memory hog.
+
+The idea was to process the data in a single pass.
+(I never got over the issue that the rANS required me to reorder everything.
+If I ever tried to finish this project, I'd still have blocks or something to deal with that.)
+
+I set a max size for the table of strings.
+And I did no look ahead.
+Each time we saw an interesting string, we pushed it onto the front of the table.
+Each time we used a string, we moved it to the front of the table.
+Each time the list got too long, we deleted the oldest entries.
+
+While this was a step in the right direction, it never produced particularly good results.
+The good parts were good.
+But the program got too dumb.
+The next obvious thought was a compromise:  limited look ahead.
