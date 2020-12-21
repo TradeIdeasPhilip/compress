@@ -108,7 +108,7 @@ I quickly saw that some combinations made no sense.
 If you just deleted a string from the list, you will never say to save the last interesting string.
 You always do the saving before the deleting.
 
-Just seperating the print command from all the others did a lot.
+Just separating the print command from all the others did a lot.
 (The print command copies a string from the table to the output.
 It is by far the most command command.)
 Eventually I made a complete state machine saying what was and wasn't legal at any time.
@@ -131,7 +131,7 @@ If you look at a histogram to say how often each index is used, it seems to foll
 Without the MRU the histogram was random and you had to encode the frequencies in the file very explicitly.
 It seems like you could give a few numbers to describe the MRU's histogram, and thus encode it very easily.
 I never actually got that step to work, for some reason.
-I could never get my estimate good enough without writing a lot of metadata.
+I could never get my estimate good enough without writing a lot of meta data.
 
 ### Huffman Trees vs rANS
 rANS is very easy to use and the results are very high quality.
@@ -184,7 +184,7 @@ Within a block we carefully curate the strings.
 Between blocks we hope for the best, and typically do well.
 
 This program had some interesting results.
-Furter research in this direction is warranted.
+Further research in this direction is warranted.
 
 The details of the block structure are currently quite clunky.
 Sometimes we get to a point where we probably should have ended the block sooner.
