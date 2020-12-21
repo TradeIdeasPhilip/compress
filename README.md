@@ -6,17 +6,17 @@ Some people whittle.
 ## rANS
 All of these attempts use rANS for the entropy encoding.
 
-Originally I tried to use a Huffman tree.  
+Originally I tried to use a Huffman tree.
 The Huffman tree was easy to encode, but sometimes expensive to write.
 With rANS it got trickier, because you can specify things a lot more precisely.
 If you try to write the complete table for a rANS encoded it would be way too long.
 
-But if you're computing the values some other way, rANS can be nice.  
+But if you're computing the values some other way, rANS can be nice.
 Analyze3.C, for example, starts with all the probabilities set equal.
 We update the probabilities one item at a time, after we encode each item.
 So we never have to explicitly write the table out to the compressed file.
 
-It's nice that rANS can get so precise.  
+It's nice that rANS can get so precise.
 The size of the resulting output is very close to the ideal size.
 This is especially helpful with control decisions.
 E.g. I have a 5% chance of applying option A, a 2% chance of applying option B, and a 93% chance applying option C.
@@ -48,7 +48,7 @@ I looked at other ways of dealing with new bytes.
 This worked out the best because I could easily come up with a good estimate of the probability for each thing I stored.
 I looked at other alternatives (like setting the initial frequencies of all bytes to 1, rather than 0, when we first start) but these all had too many arbitrary guesses.
 ### Longer Strings
-We have two ways of looking at longer strings.  
+We have two ways of looking at longer strings.
 The first is to look for longer strings based on context.
 For example, assume we recently saw "pizza pie" in the input file.
 And we just finished sending "pizz" to the entropy encoded for the second time.
