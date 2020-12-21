@@ -20,8 +20,6 @@
 
 /* This is a second attempt at a new compression program.  This is based on
  * some of the success of LZMW.C, but fixing some things that bothered me.
- * For more details see:
- * https://docs.google.com/document/d/1NkEfqxJJI6FGtTsM6uFpw38mwqx_cqBkInfEkvL4G9o/edit#
  */
 
 // Production:  g++ -o lz_compress -O4 -ggdb -std=c++0x LzStream.C
