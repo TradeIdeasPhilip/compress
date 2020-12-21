@@ -6,8 +6,8 @@ Some people whittle.
 ## rANS
 All of these attempts use rANS for the entropy encoding.
 
-Originally I tried to use a huffman tree.  
-The huffman tree was easy to encode, but sometimes expensive to write.
+Originally I tried to use a Huffman tree.  
+The Huffman tree was easy to encode, but sometimes expensive to write.
 With rANS it got trickier, because you can specify things a lot more precisely.
 If you try to write the complete table for a rANS encoded it would be way too long.
 
@@ -39,13 +39,13 @@ The first question is always is this a new byte.
 All of our other logic will copy a byte from earlier in the stream.
 If you ask for the probability of a byte we have not seen before, it will be 0.
 
-We use a very streightforward algorithm.
+We use a very straightforward algorithm.
 We infer the probability of needing a new byte at any given place.
 Then we send a yes/no to the rANS encoder saying that we do or do not need to insert a new byte.
 The results are as small as I could imagine from any other scheme.
 
 I looked at other ways of dealing with new bytes.
-This worked out the best because I could easily come up with a good estime of the probability for each thing I stored.
+This worked out the best because I could easily come up with a good estimate of the probability for each thing I stored.
 I looked at other alternatives (like setting the initial frequencies of all bytes to 1, rather than 0, when we first start) but these all had too many arbitrary guesses.
 ### Longer Strings
 We have two ways of looking at longer strings.  
