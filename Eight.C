@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <iostream>
 #include <stdint.h>
 #include <cmath>
@@ -163,8 +164,19 @@ int matchingByteCount(int64_t a, int64_t b)
   return __builtin_clzl(difference) / 8;
 }
 
-int main(int argc, char **argv)
+bool isIntelByteOrder()
 {
+  const uint64_t number = 0x0102030405060708lu;
+  char const *asByte = reinterpret_cast< char const * >(&number);
+  return (asByte[0] == 8) && (asByte[7] == 1);
+}
+
+int main(int argc, char **argv)
+{ // For simplicity just assume this.  It shouldn't be hard to fix if the
+  // byte order changes.  Instead of counting leading zeros we would count
+  // trailing zeros.  See __builtin_clzl().
+  assert(isIntelByteOrder());
+  
   if (argc != 2)
   {
     std::cerr<<"syntax:  "<<argv[0]<<" file_to_compress"<<std::endl;
