@@ -58,8 +58,8 @@ So there is a very good chance that the next byte will be "a".
 We are looking at longer strings for context, but we are still sending one byte at a time to the entropy encoder.
 
 The length of the context is important.
-When we see "pizz" we're pretty sure we know what's next.
-When we see "pizza pi" we're very sure we know what's next.
+When we see "pizz" we're *pretty sure* we know what's next.
+When we see "pizza pi" we're *very sure* we know what's next.
 We keep statistics on how well this has been working for this file so far.
 We use those statistics to set the probabilities.
 ### Whole Strings
