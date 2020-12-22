@@ -66,9 +66,9 @@ We use those statistics to set the probabilities.
 There is also an option to copy an entire string from the past, instead of just copying a single byte at a time.
 
 This is based on some of my previous projects.
-These were inspired by LZ78 algorithm.
+These were inspired by the LZ78 algorithm.
 When we see an *interesting* string in the input we tag it and put it into a table.
-I can recall that entire string with a single number.
+The decoder can recall that entire string with a single number.
 
 So far this hasn't produced strong results.
 However, it is interesting how easily this can be grafted onto the rest of the program.
@@ -86,7 +86,7 @@ LZ77 would offer more strings, but then you have to use more bits to specify whi
 This program only works because the compressor makes multiple passes through the input file.
 I use some simple variations of LZ78 to start the process of picking strings.
 Then I see which ones are actually used.
-When I finally send data to entropy encoder, I send special commands, like "save this string in the table."
+When I finally send data to the entropy encoder, I send special commands, like "save this string in the table."
 Or "delete that string that you just used."
 
 It's still cheap to use a back reference.
@@ -110,7 +110,7 @@ You always do the saving before the deleting.
 
 Just separating the print command from all the others did a lot.
 (The print command copies a string from the table to the output.
-It is by far the most command command.)
+It is by far the most common command.)
 Eventually I made a complete state machine saying what was and wasn't legal at any time.
 That helped even more.
 
@@ -139,10 +139,10 @@ It feels good that it is so precise.
 And the results show.
 
 When I first started tweaking the control data, I was still using Huffman trees.
-That was a lot more work as I tried to do add all types of smarts.
+That was a lot more work as I tried to add all types of smarts.
 And the Huffman tree would only take that so far as it's not very precise.
 With rANS I don't have to treat the control logic as a special thing.
-rANS works really well with a 1% chance of this, and a 33% chance of that...
+rANS works really well with a 1% chance of this, a 33% chance of that, and ...
 
 ### Memory Hog
 The worst part of this program is that it uses so much memory.
@@ -222,19 +222,19 @@ However, this is a weak hint with only 3 letters of context.
 
 Assume history contains one example of "Pizza Pie" and one example of "Multiply by 2 Pi!".
 We might set the probability of the next byte being 97% "e" and 3% "!".
-The first match was 5 bytes longer than the second match and 97% ≈ 2⁵ * 3%.
+The first match was 5 bytes longer than the second match and 97% ≈ 2⁵ × 3%.
 I need to work on the exact weightings, but that's where I started.
 Of course, there is a finite chance that any other byte could come next.
 In practice that's far less than 1%.
 
 My initial results were promising.
 I want to output more statistics and try more test files.
-I have not tried any tweaking yet.
+I have not tried *any* tweaking yet.
 
 I suspect the problem is that I'm not weighting the longer strings enough.
 We give them a high weight for being long.
 But we also give a boost to any hint that is repeated.
 An **eight** byte match is currently weighted 256× as much as a 0 byte match.
-But we are probably getting more far more than 256 of these 0 byte matches.
+But we are probably getting far more than 256 of these 0 byte matches.
 Analyze3.C focuses almost entirely on the longest match, and only falls back on the second or third best match when the better historical matches never point to the right byte.
 It did this in part because the long matches were so good.
