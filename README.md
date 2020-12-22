@@ -9,7 +9,7 @@ All of these attempts use rANS for the entropy encoding.
 Originally I tried to use a Huffman tree.
 The Huffman tree was easy to encode, but sometimes expensive to write.
 With rANS it got trickier, because you can specify things a lot more precisely.
-If you try to write the complete table for a rANS encoded it would be way too long.
+If you try to write the complete table for a rANS encoder it would be way too long.
 
 But if you're computing the values some other way, rANS can be nice.
 Analyze3.C, for example, starts with all the probabilities set equal.
