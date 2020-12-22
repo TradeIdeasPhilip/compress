@@ -178,7 +178,7 @@ int main(int argc, char **argv)
   File file(argv[1]);
   if (!file.valid())
   {
-    std::cerr<<argv[1]<<": "<<file.errorMessage();
+    std::cerr<<file.errorMessage()<<std::endl;
     return 2;
   }
 
@@ -249,4 +249,24 @@ int main(int argc, char **argv)
 	   <<"addReferenedByteCount:  "<<addReferenedByteCount<<std::endl
 	   <<"addReferencedByteCost:  "<<(addReferencedByteCost/8)<<" bytes"
 	   <<std::endl;
+  const double newByteCost =
+    pCostInBits(addNewByteCount /
+		(double)(addNewByteCount + addReferenedByteCount)) / 8;
+  const double referenceByteCost =
+    pCostInBits(addReferenedByteCount /
+		(double)(addNewByteCount + addReferenedByteCount)) / 8;
+  const double byteTypeCost =
+    addNewByteCount * newByteCost + addReferenedByteCount * referenceByteCost;
+  std::cout<<"byte type cost:  "<<addNewByteCount<<" * "<<newByteCost<<" + "
+	   <<addReferenedByteCount<<" * "<<referenceByteCost<<" = "
+	   <<byteTypeCost<<std::endl;
+  const double outputFileSize =
+    simpleCopyCount + addNewByteCount + byteTypeCost
+    + (addReferencedByteCost/8);
+  std::cout<<"output file size:  "<<simpleCopyCount<<" + "<<addNewByteCount
+	   <<" + "<<byteTypeCost<<" + "<<(addReferencedByteCost/8)
+	   <<" = "<<outputFileSize<<std::endl
+	   <<"savings:  "
+	   <<((file.size() - outputFileSize) * 100 / file.size())
+	   <<"%"<<std::endl;
 }
