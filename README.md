@@ -199,3 +199,42 @@ And I don't want to stop copying long strings.
 But we need an efficient way to copy short strings.
 This was one of the big influences that made me start Analyze3.C.
 That program is aware of longer strings, but heavily focused on 3 bytes at a time.
+
+## Eight.C
+Eight is in progress right now.
+(12/22/2020)
+This was inspired by Analyze3.C, and it takes some of these ideas to an extreme.
+We *only* send one byte at a time to the entropy encoder.
+
+For each byte we look at the previous N bytes to gather statistics.
+For every byte we are looking at the previous **eight** bytes for context.
+
+Consider the 9 letter string "Pizza Pie".
+If we were about to encode the "e" at the end, we'd look at history and look for "Pizza Pi".
+If you see "Pizza Pie" in history, that's a match of **eight** bytes, and a very strong sign that an "e" is next.
+If you see "Cherry Pie" in history, that is a match of three bytes.
+" Pi"
+That also suggests that the next letter is "e", but this is a shorter match so it's a weaker hint.
+
+If you see "Multiply by 2 Pi!" in history, that's a conflicting hint.
+Sometimes the three bytes " Pi" are followed by "!".
+However, this is a weak hint with only 3 letters of context.
+
+Assume history contains one example of "Pizza Pie" and one example of "Multiply by 2 Pi!".
+We might set the probability of the next byte being 97% "e" and 3% "!".
+The first match was 5 bytes longer than the second match and 97% is about 2⁵ * 3%.
+I need to work on the exact weightings, but that's where I started.
+Of course, there is a finite chance that any other byte could come next.
+In practice that's far less than 1%.
+
+My initial results were promising.
+I want to output more statistics and try more test files.
+I have not tried any tweaking yet.
+
+I suspect the problem is that I'm not weighting the longer strings enough.
+We give them a high weight for being long.
+But we also give a boost to any hint that is repeated.
+An **eight** byte match is currently weighted 256× as much as a 0 byte match.
+But we are probably getting more far more than 256 of these 0 byte matches.
+Analyze3.C focusses almost entirely on the longest match, and only falls back on the second or third best match when the better historical matches never point to the right byte.
+It did this in part because the long matches were so good.
