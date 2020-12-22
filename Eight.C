@@ -53,7 +53,7 @@
  * the array.  Add a small number to that array entry based on how good the
  * match is.
  * 
- * How do we weight the goodness of the match?  If we see a byte and no
+ * How do we weight the quality of the match?  If we see a byte and no
  * context matches, we should still add at least 1.  If we see a byte and all
  * of the context matches, we should add a value much greater than 1.  I'm not
  * sure how to weight that.  weight = bytes of context + 1?
@@ -69,7 +69,7 @@
  * match exactly this number of bytes, and how many of those times did the
  * next character match.  Prime them all to say 1 of 2 or something like
  * that.  For the compressor this is very little effort.  For the decompressor
- * we'd have a make a second pass through the file.  The decompressor needs to
+ * we'd have to make a second pass through the file.  The decompressor needs to
  * review all of the possible matches before it knows the next value.
  *
  * Possible optimization:  You don't have to walk through the history one
