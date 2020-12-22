@@ -208,12 +208,12 @@ We *only* send one byte at a time to the entropy encoder.
 
 For each byte we look at the previous N bytes to gather statistics.
 For every byte we are looking at the previous **eight** bytes for context.
+We chose that number because it's easy to do all at once with a 64 bit integer.
 
 Consider the 9 letter string "Pizza Pie".
 If we were about to encode the "e" at the end, we'd look at history and look for "Pizza Pi".
-If you see "Pizza Pie" in history, that's a match of **eight** bytes, and a very strong sign that an "e" is next.
-If you see "Cherry Pie" in history, that is a match of three bytes.
-" Pi"
+If you see "Pizza Pie" in history, that's a perfect match of **eight** bytes, and a very strong sign that an "e" is next.
+If you see "Cherry Pie" in history, that is a match of three bytes: " Pi".
 That also suggests that the next letter is "e", but this is a shorter match so it's a weaker hint.
 
 If you see "Multiply by 2 Pi!" in history, that's a conflicting hint.
@@ -222,7 +222,7 @@ However, this is a weak hint with only 3 letters of context.
 
 Assume history contains one example of "Pizza Pie" and one example of "Multiply by 2 Pi!".
 We might set the probability of the next byte being 97% "e" and 3% "!".
-The first match was 5 bytes longer than the second match and 97% is about 2⁵ * 3%.
+The first match was 5 bytes longer than the second match and 97% ≈ 2⁵ * 3%.
 I need to work on the exact weightings, but that's where I started.
 Of course, there is a finite chance that any other byte could come next.
 In practice that's far less than 1%.
