@@ -185,7 +185,7 @@ int main(int argc, char **argv)
 
   // This should be tunable.  And probably we need to record the value in
   // to file so the reader will be able to run the identical algorithm.
-  const int maxBufferSize = 10000;
+  const int maxBufferSize = 5000;
 
   File file(argv[1]);
   if (!file.valid())

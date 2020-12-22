@@ -236,5 +236,5 @@ We give them a high weight for being long.
 But we also give a boost to any hint that is repeated.
 An **eight** byte match is currently weighted 256× as much as a 0 byte match.
 But we are probably getting more far more than 256 of these 0 byte matches.
-Analyze3.C focusses almost entirely on the longest match, and only falls back on the second or third best match when the better historical matches never point to the right byte.
+Analyze3.C focuses almost entirely on the longest match, and only falls back on the second or third best match when the better historical matches never point to the right byte.
 It did this in part because the long matches were so good.
