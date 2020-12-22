@@ -1,6 +1,6 @@
 #include <iostream>
-#include <bitset>
 #include <stdint.h>
+#include <cmath>
 
 #include "File.h"
 
@@ -106,17 +106,147 @@
  * the one we want to encode?  The decompressor will need the full array.
  */
 
-int main(int, char **)
+// The input is the probability of something happening.  The output is the
+// cost in bits to represent this with an ideal entropy encoder.  We use this
+// all over for prototyping.  Just ask for the cost, don't actually bother to
+// do the encoding.
+double pCostInBits(double ratio)
 {
-  int64_t items[] = {0, 1, 2, 4, 8, 16, 32, 0x10000L, 0x100000000L,
-		     0x1FFFFFFFFL, 0x1FFFFFFFFFFFFFFFL, 0x5FFFFFFFFFFFFFFFL};
-  for (const int64_t item : items)
+  return -std::log2(ratio);
+}
+
+int simpleCopyCount = 0;
+
+// The first few always get copied as is.  Until our engine gets primed.
+// These should cost 8 bits each.
+void simpleCopy(char ch)
+{
+  simpleCopyCount++;
+}
+
+int addNewByteCount = 0;
+
+// The next byte is not available by referencing a recent byte.  So we send
+// a status command saying that this is a new byte, followed by the byte
+// itself.
+void addNewByte(char ch)
+{
+  addNewByteCount++;
+}
+
+int addReferenedByteCount = 0;
+
+// This is the price of storing which byte we will send.  Measured in bits.
+double addReferencedByteCost = 0.0;
+
+// This is the alternative to addNewByte.  We send a control signal to say
+// we are referencing something we've seen recently.  before, match, and
+// after correspond to the probability of selecting a byte before the
+// actual byte, the probability of selecting the actual byte, and the
+// probability of selecting a byte after the actual byte.  We divide by
+// the total to put this on a scale from 0 to 1.  This is exactly what we
+// need to send this byte to the entropy encoder.
+void addReferencedByte(uint32_t before, uint32_t match, uint32_t after)
+{
+  addReferenedByteCount++;
+  const double probabilityOfMatch = match / ((double)before + match + after);
+  addReferencedByteCost += pCostInBits(probabilityOfMatch);
+}
+
+int matchingByteCount(int64_t a, int64_t b)
+{
+  int64_t difference = a ^ b;
+  if (difference == 0)
+    // What does clzl(0) return?  It depends if you have optimization on or
+    // off!  This is the best possible case, a perfect match.
+    return 8;
+  return __builtin_clzl(difference) / 8;
+}
+
+int main(int argc, char **argv)
+{
+  if (argc != 2)
   {
-    std::cout<<__builtin_clzl(item)<<" "<<std::bitset<64>(item)<<" "<<item<<std::endl;
+    std::cerr<<"syntax:  "<<argv[0]<<" file_to_compress"<<std::endl;
+    return 1;
   }
-  // When I set -O4 __builtin_clzl(0) returns 64.
-  // When I set -O0 __builtin_clzl(0) returns 63.
-  // 64 is the answer I want!
-  // Seems like I read something like this once, but I can't find it now.
-  // Like this is common, but not 100% portable‽
+
+  // This should be tunable.  And probably we need to record the value in
+  // to file so the reader will be able to run the identical algorithm.
+  const int maxBufferSize = 10000;
+
+  File file(argv[1]);
+  if (!file.valid())
+  {
+    std::cerr<<argv[1]<<": "<<file.errorMessage();
+    return 2;
+  }
+
+  // We often point back 8 bytes.  But what do we do at the beginning of the
+  // file?  We'd be pointing to something random, possibly causing a
+  // segmentation violation.  So we have a copy of the first 8 bytes of the
+  // file and we padded them with 8 bytes of 0's.
+  // Why all 0's?  As long as we have this, it's tempting to fill it with
+  // the 8 most popular english letters.  Or "#include".  As long as we are
+  // consistent it should not matter.
+  std::string earlyReferences(8, '\0'); // 8 0's.
+  earlyReferences.append(file.begin(), std::min(file.size(), 8lu));
+
+  if (file.size() > 0)
+    simpleCopy(*file.begin());
+  for (char const *toEncode = file.begin() + 1;
+       toEncode < file.end();
+       toEncode++)
+  {
+    const auto getContext = [&file, &earlyReferences](char const *ptr) {
+      char const *context;
+      const intptr_t index = ptr - file.begin();
+      if (index >= 8)
+	// Try to go back 8 bytes in the file to get some context.
+	context = ptr - 8;
+      else
+	// We made a copy of the first 8 bytes in the file, and we padded them
+	// with 8 null bytes, so we'd always have context.
+	// getContext(file.begin()) should return all 0's.
+	// getContext(file.begin()+1) shoud return 7 0's followed by
+	// *file.begin().
+	context = (&earlyReferences[0]) + index;
+      return *reinterpret_cast< int64_t const * >(context);
+    };
+    const int64_t initialContext = getContext(toEncode);
+    const auto index = toEncode - file.begin();
+    char const *const start =
+      // Go back maxBufferSize bytes.  If that's past the beginning of the
+      // file, then go to the beginning of the file.  Be careful with the
+      // unsigned arithmetic!
+      (index >= maxBufferSize)?(toEncode - maxBufferSize):file.begin();
+    uint32_t scoreBefore = 0;
+    uint32_t scoreMatch = 0;
+    uint32_t scoreAfter = 0;
+    for (char const *compareTo = start; compareTo < toEncode; compareTo++)
+    {
+      auto const count =
+	matchingByteCount(initialContext, getContext(compareTo));
+      auto const score = 1 << count;
+      if (*compareTo < *toEncode)
+	scoreBefore += score;
+      else if (*compareTo == *toEncode)
+	scoreMatch += score;
+      else
+	scoreAfter += score;
+    }
+    if (scoreMatch == 0)
+      // Not found!
+      addNewByte(*toEncode);
+    else
+      addReferencedByte(scoreBefore, scoreMatch, scoreAfter);
+  }
+  
+  std::cout<<"Filename:  "<<argv[1]<<std::endl
+	   <<"File size:  "<<file.size()<<std::endl
+	   <<"simpleCopyCount:  "<<simpleCopyCount<<std::endl
+	   <<"addNewByteCount:  "<<addNewByteCount<<std::endl
+	   <<"addReferenedByteCount:  "<<addReferenedByteCount<<std::endl
+	   <<"addReferencedByteCost:  "<<(addReferencedByteCost/8)<<" bytes"
+	   <<std::endl;
 }
