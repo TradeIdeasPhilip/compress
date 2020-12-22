@@ -51,7 +51,7 @@ I looked at other alternatives (like setting the initial frequencies of all byte
 We have two ways of looking at longer strings.
 The first is to look for longer strings based on context.
 For example, assume we recently saw "pizza pie" in the input file.
-And we just finished sending "pizz" to the entropy encoded for the second time.
+And we just finished sending "pizz" to the entropy encoder for the second time.
 There is a very good chance that we are trying to say "pizza pie" again.
 So there is a very good chance that the next byte will be "a".
 
