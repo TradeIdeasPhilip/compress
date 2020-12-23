@@ -252,9 +252,9 @@ int main(int argc, char **argv)
 	scoreMatch += score;
       else
 	scoreAfter += score;
-      contextMatchCount[score]++;
+      contextMatchCount[count]++;
       if (*compareTo == *toEncode)      
-	predictionMatchCount[score]++;
+	predictionMatchCount[count]++;
     }
     if (scoreMatch == 0)
       // Not found!
@@ -292,31 +292,90 @@ int main(int argc, char **argv)
 	   <<"%"<<std::endl;
 
   std::cout<<std::endl
-	   <<"Context size    Context match    Prediction match    Success"
-	   <<std::endl;
+	   <<"Context      Context      Prediction     Success"<<std::endl
+	   <<"length     match count    match count     rate"<<std::endl;
   for (int count = 0; count <= 8; count++)
   {
-    std::cout<<std::setw(12)<<count
-	     <<std::setw(17)<<contextMatchCount[count]
-	     <<std::setw(20)<<predictionMatchCount[count];
+    std::cout<<std::setw(7)<<count
+	     <<std::setw(15)<<contextMatchCount[count]
+	     <<std::setw(15)<<predictionMatchCount[count];
     if (contextMatchCount[count])
       std::cout<<std::setw(10)
 	       <<(predictionMatchCount[count]*100.0/contextMatchCount[count])
 	       <<'%';
     std::cout<<std::endl;
   }
-  /* This last block of code has made it clear that there's a bug.  I'm getting
-   * too many zeros.  And different files all give me 0's in the exact same
-   * places.  Here's a sample:
-   * Context size    Context match    Prediction match    Success
-   *            0                0                   0
-   *            1        116532017             6227058   5.34365%
-   *            2          6227058              741731   11.9114%
-   *            3                0                   0
-   *            4           966922              383240    39.635%
-   *            5                0                   0
-   *            6                0                   0
-   *            7                0                   0
-   *            8           383221              297063   77.5174%
+  /* Sample output below.
+   * As expected, we are getting really good results from long matches.  But
+   * the shorter matches are so numerous as to overwhelm the long ones.
+   * We need to give more weight to the later matches even when they are
+   * rare.
+   * [phil@joey-mousepad ~/compress]$ ./eight test_data/c*.js.map
+   * Filename:  test_data/cvs_nq_update.js.map
+   * File size:  18940
+   * simpleCopyCount:  1
+   * addNewByteCount:  100
+   * addReferenedByteCount:  18839
+   * addReferencedByteCost:  4636.69 bytes
+   * byte type cost:  100 * 0.945652 + 18839 * 0.000954721 = 112.551
+   * output file size:  1 + 100 + 112.551 + 4636.69 = 4850.24
+   * savings:  74.3916%
+   * 
+   * Context      Context      Prediction     Success
+   * length     match count    match count     rate
+   *       0       67263713       10907542   16.2161%
+   *       1       10907542        2580669   23.6595%
+   *       2        2580669         369020   14.2994%
+   *       3         369020         327533   88.7575%
+   *       4         327533         318096   97.1188%
+   *       5         318096         211356   66.4441%
+   *       6         211356          39136   18.5166%
+   *       7          39136          34030   86.9532%
+   *       8         180435         146405     81.14%
+   * [phil@joey-mousepad ~/compress]$ ./eight test_data/c*.ts
+   * Filename:  test_data/cvs_nq_update.ts
+   * File size:  27508
+   * simpleCopyCount:  1
+   * addNewByteCount:  125
+   * addReferenedByteCount:  27382
+   * addReferencedByteCost:  11359 bytes
+   * byte type cost:  125 * 0.972716 + 27382 * 0.000821372 = 144.08
+   * output file size:  1 + 125 + 144.08 + 11359 = 11629.1
+   * savings:  57.7246%
+   * 
+   * Context      Context      Prediction     Success
+   * length     match count    match count     rate
+   *       0      116532017        6227058   5.34365%
+   *       1        6227058         741731   11.9114%
+   *       2         741684         383240   51.6716%
+   *       3         383221         297063   77.5174%
+   *       4         297013         225238   75.8344%
+   *       5         225238         182114    80.854%
+   *       6         182114         133555   73.3359%
+   *       7         133555         102413   76.6823%
+   *       8         315600         213187   67.5497%
+   * [phil@joey-mousepad ~/compress]$ ./eight test_data/Analyze3.C
+   * Filename:  test_data/Analyze3.C
+   * File size:  10873
+   * simpleCopyCount:  1
+   * addNewByteCount:  92
+   * addReferenedByteCount:  10780
+   * addReferencedByteCost:  5058.14 bytes
+   * byte type cost:  92 * 0.860596 + 10780 * 0.00153252 = 95.6954
+   * output file size:  1 + 92 + 95.6954 + 5058.14 = 5246.84
+   * savings:  51.7444%
+   * 
+   * Context      Context      Prediction     Success
+   * length     match count    match count     rate
+   *       0       39508462        1958528   4.95724%
+   *       1        1958372         219250   11.1955%
+   *       2         219234          75954   34.6452%
+   *       3          75953          36680    48.293%
+   *       4          36680          20108   54.8201%
+   *       5          20108           9673   48.1052%
+   *       6           9673           5909   61.0876%
+   *       7           5909           3736   63.2256%
+   *       8          28109          24373   86.7089%
+   * [phil@joey-mousepad ~/compress]$ 
    */
 }
