@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <iostream>
+#include <iomanip>
 #include <stdint.h>
 #include <cmath>
 
@@ -164,6 +165,11 @@ int matchingByteCount(int64_t a, int64_t b)
   return __builtin_clzl(difference) / 8;
 }
 
+// The index is the number of bytes of context.  These tell us how common and
+// how accurate each of our predictions are.
+int64_t contextMatchCount[9];
+int64_t predictionMatchCount[9];
+
 bool isIntelByteOrder()
 {
   const uint64_t number = 0x0102030405060708lu;
@@ -246,6 +252,9 @@ int main(int argc, char **argv)
 	scoreMatch += score;
       else
 	scoreAfter += score;
+      contextMatchCount[score]++;
+      if (*compareTo == *toEncode)      
+	predictionMatchCount[score]++;
     }
     if (scoreMatch == 0)
       // Not found!
@@ -281,4 +290,33 @@ int main(int argc, char **argv)
 	   <<"savings:  "
 	   <<((file.size() - outputFileSize) * 100 / file.size())
 	   <<"%"<<std::endl;
+
+  std::cout<<std::endl
+	   <<"Context size    Context match    Prediction match    Success"
+	   <<std::endl;
+  for (int count = 0; count <= 8; count++)
+  {
+    std::cout<<std::setw(12)<<count
+	     <<std::setw(17)<<contextMatchCount[count]
+	     <<std::setw(20)<<predictionMatchCount[count];
+    if (contextMatchCount[count])
+      std::cout<<std::setw(10)
+	       <<(predictionMatchCount[count]*100.0/contextMatchCount[count])
+	       <<'%';
+    std::cout<<std::endl;
+  }
+  /* This last block of code has made it clear that there's a bug.  I'm getting
+   * too many zeros.  And different files all give me 0's in the exact same
+   * places.  Here's a sample:
+   * Context size    Context match    Prediction match    Success
+   *            0                0                   0
+   *            1        116532017             6227058   5.34365%
+   *            2          6227058              741731   11.9114%
+   *            3                0                   0
+   *            4           966922              383240    39.635%
+   *            5                0                   0
+   *            6                0                   0
+   *            7                0                   0
+   *            8           383221              297063   77.5174%
+   */
 }
