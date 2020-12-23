@@ -170,6 +170,12 @@ int matchingByteCount(int64_t a, int64_t b)
 int64_t contextMatchCount[9];
 int64_t predictionMatchCount[9];
 
+// These are a subset of the previous two lines.  Consider each byte we are
+// trying to predict seperataly.  For each byte, what was the longest
+// context match we got?  Now only store the statistics for that match.
+int64_t contextMatchCountBest[9];
+int64_t predictionMatchCountBest[9];
+
 bool isIntelByteOrder()
 {
   const uint64_t number = 0x0102030405060708lu;
@@ -241,6 +247,9 @@ int main(int argc, char **argv)
     uint32_t scoreBefore = 0;
     uint32_t scoreMatch = 0;
     uint32_t scoreAfter = 0;
+    int longestContextMatch = 0;
+    uint32_t tiedForLongest = 0;
+    uint32_t successForLongest = 0;
     for (char const *compareTo = start; compareTo < toEncode; compareTo++)
     {
       auto const count =
@@ -255,7 +264,21 @@ int main(int argc, char **argv)
       contextMatchCount[count]++;
       if (*compareTo == *toEncode)      
 	predictionMatchCount[count]++;
+      if (count > longestContextMatch)
+      {
+	longestContextMatch = count;
+	tiedForLongest = 0;
+	successForLongest = 0;
+      }
+      if (count == longestContextMatch)
+      {
+	tiedForLongest++;
+	if (*compareTo == *toEncode)
+	  successForLongest++;
+      }
     }
+    contextMatchCountBest[longestContextMatch] += tiedForLongest;
+    predictionMatchCountBest[longestContextMatch] += successForLongest;
     if (scoreMatch == 0)
       // Not found!
       addNewByte(*toEncode);
@@ -292,8 +315,10 @@ int main(int argc, char **argv)
 	   <<"%"<<std::endl;
 
   std::cout<<std::endl
-	   <<"Context      Context      Prediction     Success"<<std::endl
-	   <<"length     match count    match count     rate"<<std::endl;
+	   <<"Context      Context      Prediction     Success    Best ctxt    Success"
+	   <<std::endl
+	   <<"length     match count    match count     rate      match cnt     rate"
+	   <<std::endl;
   for (int count = 0; count <= 8; count++)
   {
     std::cout<<std::setw(7)<<count
@@ -302,6 +327,14 @@ int main(int argc, char **argv)
     if (contextMatchCount[count])
       std::cout<<std::setw(10)
 	       <<(predictionMatchCount[count]*100.0/contextMatchCount[count])
+	       <<'%';
+    else
+      std::cout<<std::string(11, ' ');
+    std::cout<<std::setw(13)<<contextMatchCountBest[count];
+    if (contextMatchCountBest[count])
+      std::cout<<std::setw(10)
+	       <<(predictionMatchCountBest[count]*100.0
+		  /contextMatchCountBest[count])
 	       <<'%';
     std::cout<<std::endl;
   }
@@ -321,17 +354,17 @@ int main(int argc, char **argv)
    * output file size:  1 + 100 + 112.551 + 4636.69 = 4850.24
    * savings:  74.3916%
    * 
-   * Context      Context      Prediction     Success
-   * length     match count    match count     rate
-   *       0       67263713       10907542   16.2161%
-   *       1       10907542        2580669   23.6595%
-   *       2        2580669         369020   14.2994%
-   *       3         369020         327533   88.7575%
-   *       4         327533         318096   97.1188%
-   *       5         318096         211356   66.4441%
-   *       6         211356          39136   18.5166%
-   *       7          39136          34030   86.9532%
-   *       8         180435         146405     81.14%
+   * Context      Context      Prediction     Success    Best ctxt    Success
+   * length     match count    match count     rate      match cnt     rate
+   *       0       67263713       10907542   16.2161%       185915   11.3858%
+   *       1       10907542        2580669   23.6595%        52670   30.5886%
+   *       2        2580669         369020   14.2994%        33315   43.5269%
+   *       3         369020         327533   88.7575%        17690   80.1639%
+   *       4         327533         318096   97.1188%        14361   90.5647%
+   *       5         318096         211356   66.4441%        13264   78.4831%
+   *       6         211356          39136   18.5166%        12434   32.2664%
+   *       7          39136          34030   86.9532%         7719    80.101%
+   *       8         180435         146405     81.14%       180435     81.14%
    * [phil@joey-mousepad ~/compress]$ ./eight test_data/c*.ts
    * Filename:  test_data/cvs_nq_update.ts
    * File size:  27508
@@ -343,17 +376,17 @@ int main(int argc, char **argv)
    * output file size:  1 + 125 + 144.08 + 11359 = 11629.1
    * savings:  57.7246%
    * 
-   * Context      Context      Prediction     Success
-   * length     match count    match count     rate
-   *       0      116532017        6227058   5.34365%
-   *       1        6227058         741731   11.9114%
-   *       2         741684         383240   51.6716%
-   *       3         383221         297063   77.5174%
-   *       4         297013         225238   75.8344%
-   *       5         225238         182114    80.854%
-   *       6         182114         133555   73.3359%
-   *       7         133555         102413   76.6823%
-   *       8         315600         213187   67.5497%
+   * Context      Context      Prediction     Success    Best ctxt    Success
+   * length     match count    match count     rate      match cnt     rate
+   *       0      116532017        6227058   5.34365%       288104   4.31025%
+   *       1        6227058         741731   11.9114%       152112   11.5829%
+   *       2         741684         383240   51.6716%        48138   27.0846%
+   *       3         383221         297063   77.5174%        16956   52.4357%
+   *       4         297013         225238   75.8344%         9809   69.0386%
+   *       5         225238         182114    80.854%         7360   70.4755%
+   *       6         182114         133555   73.3359%         5484   73.6506%
+   *       7         133555         102413   76.6823%         4280   80.5841%
+   *       8         315600         213187   67.5497%       315600   67.5497%
    * [phil@joey-mousepad ~/compress]$ ./eight test_data/Analyze3.C
    * Filename:  test_data/Analyze3.C
    * File size:  10873
@@ -365,17 +398,17 @@ int main(int argc, char **argv)
    * output file size:  1 + 92 + 95.6954 + 5058.14 = 5246.84
    * savings:  51.7444%
    * 
-   * Context      Context      Prediction     Success
-   * length     match count    match count     rate
-   *       0       39508462        1958528   4.95724%
-   *       1        1958372         219250   11.1955%
-   *       2         219234          75954   34.6452%
-   *       3          75953          36680    48.293%
-   *       4          36680          20108   54.8201%
-   *       5          20108           9673   48.1052%
-   *       6           9673           5909   61.0876%
-   *       7           5909           3736   63.2256%
-   *       8          28109          24373   86.7089%
-   * [phil@joey-mousepad ~/compress]$ 
+   * Context      Context      Prediction     Success    Best ctxt    Success
+   * length     match count    match count     rate      match cnt     rate
+   *       0       39508462        1958528   4.95724%       116731   2.78504%
+   *       1        1958372         219250   11.1955%        55438   12.5942%
+   *       2         219234          75954   34.6452%        17662   28.4962%
+   *       3          75953          36680    48.293%         6837    56.282%
+   *       4          36680          20108   54.8201%         4584    65.096%
+   *       5          20108           9673   48.1052%         3289   65.6126%
+   *       6           9673           5909   61.0876%         2352   65.9014%
+   *       7           5909           3736   63.2256%         1691   68.0071%
+   *       8          28109          24373   86.7089%        28109   86.7089%
+   * [phil@joey-mousepad ~/compress]$
    */
 }
