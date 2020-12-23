@@ -141,7 +141,17 @@ int addReferenedByteCount = 0;
 // This is the price of storing which byte we will send.  Measured in bits.
 double addReferencedByteCost = 0.0;
 
-// This is the alternative to addNewByte.  We send a control signal to say
+// Ideally these would come in as integers.  That avoids round off errors
+// and ensures consistency.  However, for testing purposes, this is good
+// enough.
+void addReferencedByte(double before, double match, double after)
+{
+  addReferenedByteCount++;
+  const double probabilityOfMatch = match / (before + match + after);
+  addReferencedByteCost += pCostInBits(probabilityOfMatch);
+}
+
+// This is the alternative to addNewByte().  We send a control signal to say
 // we are referencing something we've seen recently.  before, match, and
 // after correspond to the probability of selecting a byte before the
 // actual byte, the probability of selecting the actual byte, and the
@@ -150,9 +160,7 @@ double addReferencedByteCost = 0.0;
 // need to send this byte to the entropy encoder.
 void addReferencedByte(uint32_t before, uint32_t match, uint32_t after)
 {
-  addReferenedByteCount++;
-  const double probabilityOfMatch = match / ((double)before + match + after);
-  addReferencedByteCost += pCostInBits(probabilityOfMatch);
+  addReferencedByte((double)before, (double)match, (double)after);
 }
 
 int matchingByteCount(int64_t a, int64_t b)
@@ -279,11 +287,12 @@ int main(int argc, char **argv)
     }
     contextMatchCountBest[longestContextMatch] += tiedForLongest;
     predictionMatchCountBest[longestContextMatch] += successForLongest;
-    if (scoreMatch == 0)
+    if (successForLongest == 0)
       // Not found!
       addNewByte(*toEncode);
     else
-      addReferencedByte(scoreBefore, scoreMatch, scoreAfter);
+      addReferencedByte(/*scoreBefore*/ (tiedForLongest - successForLongest),
+			/*scoreMatch*/ successForLongest, /*scoreAfter*/ 0);
   }
   
   std::cout<<"Filename:  "<<argv[1]<<std::endl
@@ -347,12 +356,12 @@ int main(int argc, char **argv)
    * Filename:  test_data/cvs_nq_update.js.map
    * File size:  18940
    * simpleCopyCount:  1
-   * addNewByteCount:  100
-   * addReferenedByteCount:  18839
-   * addReferencedByteCost:  4636.69 bytes
-   * byte type cost:  100 * 0.945652 + 18839 * 0.000954721 = 112.551
-   * output file size:  1 + 100 + 112.551 + 4636.69 = 4850.24
-   * savings:  74.3916%
+   * addNewByteCount:  4943
+   * addReferenedByteCount:  22564
+   * addReferencedByteCost:  1245.27 bytes
+   * byte type cost:  4943 * 0.309542 + 22564 * 0.035722 = 2336.1
+   * output file size:  1 + 4943 + 2336.1 + 1245.27 = 8525.37
+   * savings:  69.0077%
    * 
    * Context      Context      Prediction     Success    Best ctxt    Success
    * length     match count    match count     rate      match cnt     rate
@@ -369,12 +378,12 @@ int main(int argc, char **argv)
    * Filename:  test_data/cvs_nq_update.ts
    * File size:  27508
    * simpleCopyCount:  1
-   * addNewByteCount:  125
-   * addReferenedByteCount:  27382
-   * addReferencedByteCost:  11359 bytes
-   * byte type cost:  125 * 0.972716 + 27382 * 0.000821372 = 144.08
-   * output file size:  1 + 125 + 144.08 + 11359 = 11629.1
-   * savings:  57.7246%
+   * addNewByteCount:  4943
+   * addReferenedByteCount:  22564
+   * addReferencedByteCost:  1245.27 bytes
+   * byte type cost:  4943 * 0.309542 + 22564 * 0.035722 = 2336.1
+   * output file size:  1 + 4943 + 2336.1 + 1245.27 = 8525.37
+   * savings:  69.0077%
    * 
    * Context      Context      Prediction     Success    Best ctxt    Success
    * length     match count    match count     rate      match cnt     rate
@@ -391,12 +400,12 @@ int main(int argc, char **argv)
    * Filename:  test_data/Analyze3.C
    * File size:  10873
    * simpleCopyCount:  1
-   * addNewByteCount:  92
-   * addReferenedByteCount:  10780
-   * addReferencedByteCost:  5058.14 bytes
-   * byte type cost:  92 * 0.860596 + 10780 * 0.00153252 = 95.6954
-   * output file size:  1 + 92 + 95.6954 + 5058.14 = 5246.84
-   * savings:  51.7444%
+   * addNewByteCount:  2521
+   * addReferenedByteCount:  8351
+   * addReferencedByteCost:  561.922 bytes
+   * byte type cost:  2521 * 0.263569 + 8351 * 0.0475746 = 1061.75
+   * output file size:  1 + 2521 + 1061.75 + 561.922 = 4145.67
+   * savings:  61.8719%
    * 
    * Context      Context      Prediction     Success    Best ctxt    Success
    * length     match count    match count     rate      match cnt     rate
