@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <stdint.h>
 #include <cmath>
+#include <string.h>
 
 #include "File.h"
 
@@ -178,12 +179,6 @@ int matchingByteCount(int64_t a, int64_t b)
 int64_t contextMatchCount[9];
 int64_t predictionMatchCount[9];
 
-// These are a subset of the previous two lines.  Consider each byte we are
-// trying to predict seperataly.  For each byte, what was the longest
-// context match we got?  Now only store the statistics for that match.
-int64_t contextMatchCountBest[9];
-int64_t predictionMatchCountBest[9];
-
 bool isIntelByteOrder()
 {
   const uint64_t number = 0x0102030405060708lu;
@@ -252,47 +247,91 @@ int main(int argc, char **argv)
       // file, then go to the beginning of the file.  Be careful with the
       // unsigned arithmetic!
       (index >= maxBufferSize)?(toEncode - maxBufferSize):file.begin();
-    uint32_t scoreBefore = 0;
-    uint32_t scoreMatch = 0;
-    uint32_t scoreAfter = 0;
-    int longestContextMatch = 0;
-    uint32_t tiedForLongest = 0;
-    uint32_t successForLongest = 0;
+
+    // contextMatchCount and predictionMatchCount give us a historical
+    // sense of how good each level is.  Those are globals and we can report
+    // a small number of statistics on that subject.
+    //
+    // Now we are storing similar data, but only for this current byte.
+    // We are taking a lot of liberties here.  The encoder would need at least
+    // 3 bins for each level:  before the match, same as the match, and after
+    // the match, to work with addReferencedByte().  (The decoder will need
+    // 256 bins per level!)  But we're still just experimenting, and this will
+    // give us the statistics we need.
+    int64_t currentContextMatchCount[9];
+    int64_t currentPredictionMatchCount[9];
+    memset(currentContextMatchCount, 0, sizeof(currentContextMatchCount)); 
+    memset(currentPredictionMatchCount, 0,
+	   sizeof(currentPredictionMatchCount)); 
     for (char const *compareTo = start; compareTo < toEncode; compareTo++)
     {
       auto const count =
 	matchingByteCount(initialContext, getContext(compareTo));
-      auto const score = 1 << count;
-      if (*compareTo < *toEncode)
-	scoreBefore += score;
-      else if (*compareTo == *toEncode)
-	scoreMatch += score;
-      else
-	scoreAfter += score;
       contextMatchCount[count]++;
-      if (*compareTo == *toEncode)      
+      currentContextMatchCount[count]++;
+      if (*compareTo == *toEncode)
+      {
 	predictionMatchCount[count]++;
-      if (count > longestContextMatch)
-      {
-	longestContextMatch = count;
-	tiedForLongest = 0;
-	successForLongest = 0;
-      }
-      if (count == longestContextMatch)
-      {
-	tiedForLongest++;
-	if (*compareTo == *toEncode)
-	  successForLongest++;
+	currentPredictionMatchCount[count]++;
       }
     }
-    contextMatchCountBest[longestContextMatch] += tiedForLongest;
-    predictionMatchCountBest[longestContextMatch] += successForLongest;
-    if (successForLongest == 0)
+
+    // We're taking more liberties here.  The math should really be done in
+    // integers to be repeatable and portable.  But for our statistics doubles
+    // work perfectly and are more convenient.
+    //
+    // We are not currently using contextMatchCount or predictionMatchCount.
+    // If this algorithm works We should circle back and use those to tweak
+    // our weights.  We print those for statistics, but only for us to read.
+    //
+    // Each of the 9 levels has a unique weight.  0 context has a total weight
+    // of 2^0 = 1, 1 bytes of context has a weight of 2^2 = 2, 8 bytes of
+    // context has a weight of 2^8 = 256.
+    //
+    // If level has 0 entries in it, then we change its weight to 0.
+    //
+    // Within a level each match gets the same weight.
+    //
+    // The previous attempt gave 100% of the weight to the highest level
+    // with at least one entry.  The attempt before that gave equal weight to
+    // every entry, regardless of the level.  The current algorithm is a
+    // compromise between those extremes.
+    double currentWinningScore = 0;
+    double currentPossibleScore = 0;
+    for (int level = 0; level <= 8; level++)
+    {
+      if (currentContextMatchCount[level])
+      {
+	const double weight = 1<<level;
+	currentPossibleScore += weight;
+	currentWinningScore += currentPredictionMatchCount[level] * weight
+	  / currentContextMatchCount[level];
+      }
+    }
+    if (currentWinningScore == 0)
       // Not found!
       addNewByte(*toEncode);
     else
-      addReferencedByte(/*scoreBefore*/ (tiedForLongest - successForLongest),
-			/*scoreMatch*/ successForLongest, /*scoreAfter*/ 0);
+    { // chanceOfSuccess says the probability that we assigned to the actual
+      // byte we are trying to encode, before we actually saw this byte.
+      //
+      // If we've seen nothing but 0's so far, and we see another 0, then
+      // chanceOfSuccess will be 100%.  (1.0)  Once we say that this is a
+      // reference to a previous byte, it will take exactly 0 bits to say
+      // which byte we are talking about.
+      //
+      // A more realistic example:  All of the 8 byte context matches
+      // pointed to the same next byte, and that was the correct byte.
+      // Now chanceOfSuccess will be at least 50%.  So it will take 1 bit
+      // or less to say which byte we are talking about.
+      //
+      // If we never saw this byte before chanceOfSuccess would be 0.  We
+      // filtered that case out before we got here.  Otherwise it would take
+      // infinitely many bits to represent this byte!
+      const double chanceOfSuccess = currentWinningScore/currentPossibleScore;
+      addReferencedByte(/*scoreBefore*/ 1 - chanceOfSuccess,
+			/*scoreMatch*/ chanceOfSuccess, /*scoreAfter*/ 0);
+    }
   }
   
   std::cout<<"Filename:  "<<argv[1]<<std::endl
@@ -324,9 +363,9 @@ int main(int argc, char **argv)
 	   <<"%"<<std::endl;
 
   std::cout<<std::endl
-	   <<"Context      Context      Prediction     Success    Best ctxt    Success"
+	   <<"Context      Context      Prediction     Success"
 	   <<std::endl
-	   <<"length     match count    match count     rate      match cnt     rate"
+	   <<"length     match count    match count     rate"
 	   <<std::endl;
   for (int count = 0; count <= 8; count++)
   {
@@ -339,85 +378,92 @@ int main(int argc, char **argv)
 	       <<'%';
     else
       std::cout<<std::string(11, ' ');
-    std::cout<<std::setw(13)<<contextMatchCountBest[count];
-    if (contextMatchCountBest[count])
-      std::cout<<std::setw(10)
-	       <<(predictionMatchCountBest[count]*100.0
-		  /contextMatchCountBest[count])
-	       <<'%';
     std::cout<<std::endl;
   }
-  /* Sample output below.
-   * As expected, we are getting really good results from long matches.  But
-   * the shorter matches are so numerous as to overwhelm the long ones.
-   * We need to give more weight to the later matches even when they are
-   * rare.
-   * [phil@joey-mousepad ~/compress]$ ./eight test_data/c*.js.map
+  /* Note:  I just found a bug in the previous results.  I don't know if this
+   * was a bug in the code.  It's possible that I copied the data wrong, but
+   * I'm really not sure.  Highlights:
    * Filename:  test_data/cvs_nq_update.js.map
    * File size:  18940
    * simpleCopyCount:  1
    * addNewByteCount:  4943
    * addReferenedByteCount:  22564
-   * addReferencedByteCost:  1245.27 bytes
-   * byte type cost:  4943 * 0.309542 + 22564 * 0.035722 = 2336.1
-   * output file size:  1 + 4943 + 2336.1 + 1245.27 = 8525.37
-   * savings:  69.0077%
+   * The top number should be the sum of the other numbers.  Somehow we were
+   * sending extra things to the encoder, which might explain the bad
+   * performance.
+   *
+   * Only that one file was wrong.  The numbers added up for the other two
+   * examples in these comments.  And the current code gives the right numbers
+   * for all three test files.
+   *
+   * Current results are remarkable!  These three test files were all within
+   * about 1% of gzip.
+   * [phil@joey-mousepad ~/compress]$ ./eight test_data/c*.js.map
+   * Filename:  test_data/cvs_nq_update.js.map
+   * File size:  18940
+   * simpleCopyCount:  1
+   * addNewByteCount:  100
+   * addReferenedByteCount:  18839
+   * addReferencedByteCost:  2501.6 bytes
+   * byte type cost:  100 * 0.945652 + 18839 * 0.000954721 = 112.551
+   * output file size:  1 + 100 + 112.551 + 2501.6 = 2715.15
+   * savings:  85.6644%
    * 
-   * Context      Context      Prediction     Success    Best ctxt    Success
-   * length     match count    match count     rate      match cnt     rate
-   *       0       67263713       10907542   16.2161%       185915   11.3858%
-   *       1       10907542        2580669   23.6595%        52670   30.5886%
-   *       2        2580669         369020   14.2994%        33315   43.5269%
-   *       3         369020         327533   88.7575%        17690   80.1639%
-   *       4         327533         318096   97.1188%        14361   90.5647%
-   *       5         318096         211356   66.4441%        13264   78.4831%
-   *       6         211356          39136   18.5166%        12434   32.2664%
-   *       7          39136          34030   86.9532%         7719    80.101%
-   *       8         180435         146405     81.14%       180435     81.14%
+   * Context      Context      Prediction     Success
+   * length     match count    match count     rate
+   *       0       67263713       10907542   16.2161%
+   *       1       10907542        2580669   23.6595%
+   *       2        2580669         369020   14.2994%
+   *       3         369020         327533   88.7575%
+   *       4         327533         318096   97.1188%
+   *       5         318096         211356   66.4441%
+   *       6         211356          39136   18.5166%
+   *       7          39136          34030   86.9532%
+   *       8         180435         146405     81.14%
    * [phil@joey-mousepad ~/compress]$ ./eight test_data/c*.ts
    * Filename:  test_data/cvs_nq_update.ts
    * File size:  27508
    * simpleCopyCount:  1
-   * addNewByteCount:  4943
-   * addReferenedByteCount:  22564
-   * addReferencedByteCost:  1245.27 bytes
-   * byte type cost:  4943 * 0.309542 + 22564 * 0.035722 = 2336.1
-   * output file size:  1 + 4943 + 2336.1 + 1245.27 = 8525.37
-   * savings:  69.0077%
+   * addNewByteCount:  125
+   * addReferenedByteCount:  27382
+   * addReferencedByteCost:  6173.59 bytes
+   * byte type cost:  125 * 0.972716 + 27382 * 0.000821372 = 144.08
+   * output file size:  1 + 125 + 144.08 + 6173.59 = 6443.67
+   * savings:  76.5753%
    * 
-   * Context      Context      Prediction     Success    Best ctxt    Success
-   * length     match count    match count     rate      match cnt     rate
-   *       0      116532017        6227058   5.34365%       288104   4.31025%
-   *       1        6227058         741731   11.9114%       152112   11.5829%
-   *       2         741684         383240   51.6716%        48138   27.0846%
-   *       3         383221         297063   77.5174%        16956   52.4357%
-   *       4         297013         225238   75.8344%         9809   69.0386%
-   *       5         225238         182114    80.854%         7360   70.4755%
-   *       6         182114         133555   73.3359%         5484   73.6506%
-   *       7         133555         102413   76.6823%         4280   80.5841%
-   *       8         315600         213187   67.5497%       315600   67.5497%
+   * Context      Context      Prediction     Success
+   * length     match count    match count     rate
+   *       0      116532017        6227058   5.34365%
+   *       1        6227058         741731   11.9114%
+   *       2         741684         383240   51.6716%
+   *       3         383221         297063   77.5174%
+   *       4         297013         225238   75.8344%
+   *       5         225238         182114    80.854%
+   *       6         182114         133555   73.3359%
+   *       7         133555         102413   76.6823%
+   *       8         315600         213187   67.5497%
    * [phil@joey-mousepad ~/compress]$ ./eight test_data/Analyze3.C
    * Filename:  test_data/Analyze3.C
    * File size:  10873
    * simpleCopyCount:  1
-   * addNewByteCount:  2521
-   * addReferenedByteCount:  8351
-   * addReferencedByteCost:  561.922 bytes
-   * byte type cost:  2521 * 0.263569 + 8351 * 0.0475746 = 1061.75
-   * output file size:  1 + 2521 + 1061.75 + 561.922 = 4145.67
-   * savings:  61.8719%
+   * addNewByteCount:  92
+   * addReferenedByteCount:  10780
+   * addReferencedByteCost:  3046.9 bytes
+   * byte type cost:  92 * 0.860596 + 10780 * 0.00153252 = 95.6954
+   * output file size:  1 + 92 + 95.6954 + 3046.9 = 3235.6
+   * savings:  70.2419%
    * 
-   * Context      Context      Prediction     Success    Best ctxt    Success
-   * length     match count    match count     rate      match cnt     rate
-   *       0       39508462        1958528   4.95724%       116731   2.78504%
-   *       1        1958372         219250   11.1955%        55438   12.5942%
-   *       2         219234          75954   34.6452%        17662   28.4962%
-   *       3          75953          36680    48.293%         6837    56.282%
-   *       4          36680          20108   54.8201%         4584    65.096%
-   *       5          20108           9673   48.1052%         3289   65.6126%
-   *       6           9673           5909   61.0876%         2352   65.9014%
-   *       7           5909           3736   63.2256%         1691   68.0071%
-   *       8          28109          24373   86.7089%        28109   86.7089%
-   * [phil@joey-mousepad ~/compress]$
+   * Context      Context      Prediction     Success
+   * length     match count    match count     rate
+   *       0       39508462        1958528   4.95724%
+   *       1        1958372         219250   11.1955%
+   *       2         219234          75954   34.6452%
+   *       3          75953          36680    48.293%
+   *       4          36680          20108   54.8201%
+   *       5          20108           9673   48.1052%
+   *       6           9673           5909   61.0876%
+   *       7           5909           3736   63.2256%
+   *       8          28109          24373   86.7089%
+   * [phil@joey-mousepad ~/compress]$ 
    */
 }
