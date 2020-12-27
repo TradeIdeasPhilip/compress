@@ -6,8 +6,9 @@
 #include <string.h>
 
 #include "File.h"
+#include "RansBlockWriter.h"
 
-// g++ -o eight -O4 -ggdb -std=c++0x -Wall Eight.C File.C
+// g++ -o eight -O4 -ggdb -std=c++0x -Wall Eight.C File.C RansBlockWriter.C
 
 
 /* This was inspired by Analyze3.C, but this is simpler and more brute-forcy.
@@ -118,13 +119,19 @@ double pCostInBits(double ratio)
   return -std::log2(ratio);
 }
 
-int simpleCopyCount = 0;
-
-// The first few always get copied as is.  Until our engine gets primed.
-// These should cost 8 bits each.
-void simpleCopy(char ch)
+// For simplicity make no assumptions about ch.  It's just a number between
+// 0 and 255.
+void simpleCopy(unsigned char ch, RansBlockWriter &writer)
 {
-  simpleCopyCount++;
+  writer.write(RansRange(ch, 1, 256));
+}
+
+BoolCounter algorithmCounter(true);
+
+void recordAlgorithm(bool byReference, RansBlockWriter &writer)
+{
+  writer.write(algorithmCounter.getRange(byReference));
+  algorithmCounter.increment(byReference);
 }
 
 int addNewByteCount = 0;
@@ -132,9 +139,11 @@ int addNewByteCount = 0;
 // The next byte is not available by referencing a recent byte.  So we send
 // a status command saying that this is a new byte, followed by the byte
 // itself.
-void addNewByte(char ch)
+void addNewByte(char ch, RansBlockWriter &writer)
 {
   addNewByteCount++;
+  recordAlgorithm(false, writer);
+  simpleCopy(ch, writer);  
 }
 
 int addReferenedByteCount = 0;
@@ -142,26 +151,15 @@ int addReferenedByteCount = 0;
 // This is the price of storing which byte we will send.  Measured in bits.
 double addReferencedByteCost = 0.0;
 
-// Ideally these would come in as integers.  That avoids round off errors
-// and ensures consistency.  However, for testing purposes, this is good
-// enough.
-void addReferencedByte(double before, double match, double after)
-{
-  addReferenedByteCount++;
-  const double probabilityOfMatch = match / (before + match + after);
-  addReferencedByteCost += pCostInBits(probabilityOfMatch);
-}
-
 // This is the alternative to addNewByte().  We send a control signal to say
-// we are referencing something we've seen recently.  before, match, and
-// after correspond to the probability of selecting a byte before the
-// actual byte, the probability of selecting the actual byte, and the
-// probability of selecting a byte after the actual byte.  We divide by
-// the total to put this on a scale from 0 to 1.  This is exactly what we
-// need to send this byte to the entropy encoder.
-void addReferencedByte(uint32_t before, uint32_t match, uint32_t after)
+// we are referencing something we've seen recently.  Then we send range,
+// which describes which byte we are referencing.
+void addReferencedByte(RansRange range, RansBlockWriter &writer)
 {
-  addReferencedByte((double)before, (double)match, (double)after);
+  recordAlgorithm(true, writer);
+  writer.write(range);
+  addReferenedByteCount++;
+  addReferencedByteCost += range.idealCost();
 }
 
 int matchingByteCount(int64_t a, int64_t b)
@@ -212,6 +210,8 @@ int main(int argc, char **argv)
     return 2;
   }
 
+  RansBlockWriter writer(argv[1] + std::string(".μ8"));
+
   // We often point back 8 bytes.  But what do we do at the beginning of the
   // file?  We'd be pointing to something random, possibly causing a
   // segmentation violation.  So we have a copy of the first 8 bytes of the
@@ -223,7 +223,7 @@ int main(int argc, char **argv)
   earlyReferences.append(file.begin(), std::min(file.size(), 8lu));
 
   if (file.size() > 0)
-    simpleCopy(*file.begin());
+    simpleCopy(*file.begin(), writer);
   for (char const *toEncode = file.begin() + 1;
        toEncode < file.end();
        toEncode++)
@@ -313,7 +313,7 @@ int main(int argc, char **argv)
     }
     if (currentWinningScore == 0)
       // Not found!
-      addNewByte(*toEncode);
+      addNewByte(*toEncode, writer);
     else
     { // chanceOfSuccess says the probability that we assigned to the actual
       // byte we are trying to encode, before we actually saw this byte.
@@ -332,14 +332,19 @@ int main(int argc, char **argv)
       // filtered that case out before we got here.  Otherwise it would take
       // infinitely many bits to represent this byte!
       const double chanceOfSuccess = currentWinningScore/currentPossibleScore;
-      addReferencedByte(/*scoreBefore*/ 1 - chanceOfSuccess,
-			/*scoreMatch*/ chanceOfSuccess, /*scoreAfter*/ 0);
+      const int denominator = 1<<25;  // This is a hack!
+      // TODO do this right!  This is enough to make sure the file size is
+      // about what it should be, but not enough to actually decode the file.
+      const RansRange range(0, (int)std::floor(denominator * chanceOfSuccess),
+			    denominator);
+      addReferencedByte(range, writer);
     }
   }
-  
+
+  const int simpleCopyCount = 1;
   std::cout<<"Filename:  "<<argv[1]<<std::endl
 	   <<"File size:  "<<file.size()<<std::endl
-	   <<"simpleCopyCount:  "<<simpleCopyCount<<std::endl
+         //<<"simpleCopyCount:  "<<simpleCopyCount<<std::endl
 	   <<"addNewByteCount:  "<<addNewByteCount<<std::endl
 	   <<"addReferenedByteCount:  "<<addReferenedByteCount<<std::endl
 	   <<"addReferencedByteCost:  "<<(addReferencedByteCost/8)<<" bytes"
