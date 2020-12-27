@@ -229,5 +229,11 @@ public:
   void reduceOld() { _counter.reduceOld(); }
 };
 
+inline bool isIntelByteOrder()
+{
+  const uint64_t number = 0x0102030405060708lu;
+  char const *asByte = reinterpret_cast< char const * >(&number);
+  return (asByte[0] == 8) && (asByte[7] == 1);
+}
 
 #endif

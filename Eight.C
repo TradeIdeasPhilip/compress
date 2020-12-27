@@ -177,17 +177,14 @@ int matchingByteCount(int64_t a, int64_t b)
 int64_t contextMatchCount[9];
 int64_t predictionMatchCount[9];
 
-bool isIntelByteOrder()
-{
-  const uint64_t number = 0x0102030405060708lu;
-  char const *asByte = reinterpret_cast< char const * >(&number);
-  return (asByte[0] == 8) && (asByte[7] == 1);
-}
-
 int main(int argc, char **argv)
 { // For simplicity just assume this.  It shouldn't be hard to fix if the
   // byte order changes.  Instead of counting leading zeros we would count
   // trailing zeros.  See __builtin_clzl().
+  //
+  // What about the rANS library?  I think we'd want to just swap every pair of
+  // bytes.  That library and our custom code *always* read and write 32 bits
+  // at a time.
   assert(isIntelByteOrder());
   
   if (argc != 2)

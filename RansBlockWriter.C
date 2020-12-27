@@ -38,7 +38,15 @@ RansBlockWriter::RansBlockWriter(std::string const &fileName) :
 
 RansBlockWriter::~RansBlockWriter()
 {
+  // If anything is currently in the buffer (and there's a good chance there
+  // is) write it now.
   flush();
+  // Send an extra block to the file with a length of 0.  That's the nice way
+  // to say end of file.  This is not strictly necessary, but it is nice for
+  // a few reasons.  In part, when reading data in RansBlockReader, the
+  // error handling works better if I know there's always more data when I
+  // do a rANS read.  In this case I always know there's at least another
+  // two bytes for the end of file marker!
   flush(true);
 }
 
