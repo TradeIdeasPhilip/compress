@@ -200,7 +200,10 @@ int main(int argc, char **argv)
 
   // This should be tunable.  And probably we need to record the value in
   // to file so the reader will be able to run the identical algorithm.
-  const int maxBufferSize = 5000;
+  // I'm using 8,000 bytes right now because that's the default buffer size
+  // that gzip uses.  (I'm not saying that's the right answer.  Just changing
+  // fewer things at a time.)
+  const int maxBufferSize = 8000;
 
   File file(argv[1]);
   if (!file.valid())
@@ -342,8 +345,15 @@ int main(int argc, char **argv)
 	   <<"addReferencedByteCost:  "<<(addReferencedByteCost/8)<<" bytes"
 	   <<std::endl;
   const double newByteCost =
-    pCostInBits(addNewByteCount /
-		(double)(addNewByteCount + addReferenedByteCount)) / 8;
+    // I'm effectively adding one yes and one no just to make sure we never
+    // get a divided by zero.  However, that trick didn't do much.  When I
+    // try to compress a large file of all zeros, I see
+    //   byte type cost:  0 * 2.08048 + 102399 * -0 = 0
+    //   output file size:  1 + 0 + 0 + 0 = 1
+    //   savings:  99.999%
+    // So take this estimate with a grain of salt.
+    pCostInBits((addNewByteCount + 1) /
+		(double)(addNewByteCount + addReferenedByteCount + 2)) / 8;
   const double referenceByteCost =
     pCostInBits(addReferenedByteCount /
 		(double)(addNewByteCount + addReferenedByteCount)) / 8;
