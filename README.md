@@ -229,5 +229,5 @@ The exact weightings are a little more complicated, but this is where I started.
 My initial results are promising.
 As of 12/29/2020 I'm typically getting a percent or two better than gzip on various types of text files.
 I'm in the process of writing a complete version of the compress and decompress programs.
-The decompress program needs a lot of details to keep up with th ecompress program.
+The decompress program needs a lot of details to keep up with the compress program.
 So I can't fake as much; I need to fill in more details of the compress program or the decompress program will never work.
