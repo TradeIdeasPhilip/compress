@@ -3,7 +3,6 @@
 
 #include "RansBlockReader.h"
 
-// g++ -o uneight -O4 -ggdb -std=c++0x -Wall Uneight.C File.C RansBlockReader.C
 
 int main(int argc, char **argv)
 { // See notes in Eight.C regarding isIntelByteOrder().

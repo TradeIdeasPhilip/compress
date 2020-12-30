@@ -7,8 +7,7 @@
 
 #include "File.h"
 #include "RansBlockWriter.h"
-
-// g++ -o eight -O4 -ggdb -std=c++0x -Wall Eight.C File.C RansBlockWriter.C
+#include "EightShared.h"
 
 
 /* This was inspired by Analyze3.C, but this is simpler and more brute-forcy.
@@ -177,6 +176,12 @@ int matchingByteCount(int64_t a, int64_t b)
 int64_t contextMatchCount[9];
 int64_t predictionMatchCount[9];
 
+int64_t getContext(char const *ptr) {
+  char const *context = ptr - 8;
+  return *reinterpret_cast< int64_t const * >(context);
+};
+
+
 int main(int argc, char **argv)
 { // For simplicity just assume this.  It shouldn't be hard to fix if the
   // byte order changes.  Instead of counting leading zeros we would count
@@ -200,7 +205,7 @@ int main(int argc, char **argv)
   // fewer things at a time.)
   const int maxBufferSize = 8000;
 
-  File file(argv[1]);
+  File file(argv[1], preloadContents);
   if (!file.valid())
   {
     std::cerr<<file.errorMessage()<<std::endl;
@@ -209,37 +214,12 @@ int main(int argc, char **argv)
 
   RansBlockWriter writer(argv[1] + std::string(".μ8"));
 
-  // We often point back 8 bytes.  But what do we do at the beginning of the
-  // file?  We'd be pointing to something random, possibly causing a
-  // segmentation violation.  So we have a copy of the first 8 bytes of the
-  // file and we padded them with 8 bytes of 0's.
-  // Why all 0's?  As long as we have this, it's tempting to fill it with
-  // the 8 most popular english letters.  Or "#include".  As long as we are
-  // consistent it should not matter.
-  std::string earlyReferences(8, '\0'); // 8 0's.
-  earlyReferences.append(file.begin(), std::min(file.size(), 8lu));
-
   if (file.size() > 0)
     simpleCopy(*file.begin(), writer);
   for (char const *toEncode = file.begin() + 1;
        toEncode < file.end();
        toEncode++)
   {
-    const auto getContext = [&file, &earlyReferences](char const *ptr) {
-      char const *context;
-      const intptr_t index = ptr - file.begin();
-      if (index >= 8)
-	// Try to go back 8 bytes in the file to get some context.
-	context = ptr - 8;
-      else
-	// We made a copy of the first 8 bytes in the file, and we padded them
-	// with 8 null bytes, so we'd always have context.
-	// getContext(file.begin()) should return all 0's.
-	// getContext(file.begin()+1) shoud return 7 0's followed by
-	// *file.begin().
-	context = (&earlyReferences[0]) + index;
-      return *reinterpret_cast< int64_t const * >(context);
-    };
     const int64_t initialContext = getContext(toEncode);
     const auto index = toEncode - file.begin();
     char const *const start =
