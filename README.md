@@ -223,18 +223,11 @@ However, this is a weak hint with only 3 letters of context.
 Assume history contains one example of "Pizza Pie" and one example of "Multiply by 2 Pi!".
 We might set the probability of the next byte being 97% "e" and 3% "!".
 The first match was 5 bytes longer than the second match and 97% ≈ 2⁵ × 3%.
-I need to work on the exact weightings, but that's where I started.
 Of course, there is a finite chance that any other byte could come next.
-In practice that's far less than 1%.
+The exact weightings are a little more complicated, but this is where I started.
 
-My initial results were promising.
-I want to output more statistics and try more test files.
-I have not tried *any* tweaking yet.
-
-I suspect the problem is that I'm not weighting the longer strings enough.
-We give them a high weight for being long.
-But we also give a boost to any hint that is repeated.
-An **eight** byte match is currently weighted 256× as much as a 0 byte match.
-But we are probably getting far more than 256 of these 0 byte matches.
-Analyze3.C focuses almost entirely on the longest match, and only falls back on the second or third best match when the better historical matches never point to the right byte.
-It did this in part because the long matches were so good.
+My initial results are promising.
+As of 12/29/2020 I'm typically getting a percent or two better than gzip on various types of text files.
+I'm in the process of writing a complete version of the compress and decompress programs.
+The decompress program needs a lot of details to keep up with th ecompress program.
+So I can't fake as much; I need to fill in more details of the compress program or the decompress program will never work.
