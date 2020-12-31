@@ -206,14 +206,6 @@ class BoolCounter
 private:
   SymbolCounter _counter;
 public:
-  BoolCounter(bool preload = false)
-  {
-    if (preload)
-    { // This is the simple way to ensure nothing has a probability of 0.
-      increment(false);
-      increment(true);
-    }
-  }
   void increment(bool value)
   {
     _counter.increment(value);

@@ -125,7 +125,7 @@ void simpleCopy(unsigned char ch, RansBlockWriter &writer)
   writer.write(RansRange(ch, 1, 256));
 }
 
-BoolCounter algorithmCounter(true);
+BoolCounter algorithmCounter;
 
 void recordAlgorithm(bool byReference, RansBlockWriter &writer)
 {
@@ -197,13 +197,6 @@ int main(int argc, char **argv)
     std::cerr<<"syntax:  "<<argv[0]<<" file_to_compress"<<std::endl;
     return 1;
   }
-
-  // This should be tunable.  And probably we need to record the value in
-  // to file so the reader will be able to run the identical algorithm.
-  // I'm using 8,000 bytes right now because that's the default buffer size
-  // that gzip uses.  (I'm not saying that's the right answer.  Just changing
-  // fewer things at a time.)
-  const int maxBufferSize = 8000;
 
   File file(argv[1], preloadContents);
   if (!file.valid())

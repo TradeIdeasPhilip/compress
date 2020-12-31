@@ -28,6 +28,17 @@ public:
   uint32_t get(uint32_t denominator);
   void advance(RansRange range);
 
+  // This is ugly.  There should be a better interface connecting
+  // RansBlockReader with BoolCounter and SymbolCounter.
+  //
+  // Always call eof() before trying to read, even if you ignore the result.
+  // That will possibly deal with framing issues.
+  // Then do a get followed by an advance.  3 steps every time.
+  //
+  // Super duper ugly.
+  uint32_t **getNext() { return &_next; }
+  Rans64State *getRansState() { return &_ransState; }
+  
   void dumpStats(std::ostream &out);
 
 };
