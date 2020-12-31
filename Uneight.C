@@ -2,6 +2,7 @@
 #include <fstream>
 
 #include "RansBlockReader.h"
+#include "EightShared.h"
 
 
 int main(int argc, char **argv)
@@ -19,7 +20,8 @@ int main(int argc, char **argv)
     (argc == 3)?argv[1]:(outputFileName + ".μ8");
 
   RansBlockReader inFile(inputFileName.c_str());
-  
+
+  // TODO this should probably be binary.
   std::ofstream outFile(outputFileName);
   if (!outFile)
   {
@@ -29,5 +31,14 @@ int main(int argc, char **argv)
   }
   outFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
 
-  
+  std::string buffer = preloadContents;
+  TopLevel topLevel;
+  while (!inFile.eof())
+  {
+    char ch = topLevel.decode(&*buffer.begin(), &*buffer.end(), inFile);
+    outFile<<ch;
+    buffer += ch;
+    if (buffer.length() >= (size_t)maxBufferSize * 2)
+      buffer.erase(buffer.begin(), buffer.end() - maxBufferSize);
+  }
 } 

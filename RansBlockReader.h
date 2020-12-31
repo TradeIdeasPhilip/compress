@@ -36,7 +36,7 @@ public:
   // Then do a get followed by an advance.  3 steps every time.
   //
   // Super duper ugly.
-  uint32_t **getNext() { return &_next; }
+  uint32_t **getNext() { _remainingInBlock--; return &_next; }
   Rans64State *getRansState() { return &_ransState; }
   
   void dumpStats(std::ostream &out);

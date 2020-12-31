@@ -12,7 +12,6 @@ RansBlockReader::RansBlockReader(char const *fileName) :
 {
   if (!_file.valid())
     throw std::runtime_error(_file.errorMessage());
-  Rans64DecInit(&_ransState, &_next);
 }
 
 bool RansBlockReader::eof()
@@ -37,12 +36,13 @@ bool RansBlockReader::eof()
   _next++;
   if (_remainingInBlock < 0)
     throw std::runtime_error("Corrupt file.");
-  if (_remainingInBlock)
+  if (!_remainingInBlock)
   { // We found a properly marked end of file.
     _remainingInBlock = -1;
     return true;
   }
   // We started a new block that contains more data.
+  Rans64DecInit(&_ransState, &_next);
   return false;
 }
 
@@ -60,6 +60,7 @@ void RansBlockReader::advance(RansRange range)
   if (_next >= _end)
     throw std::runtime_error("Incomplete or corrupt file.");
   range.advance(&_ransState, &_next);
+  _remainingInBlock--;
 }
 
 void RansBlockReader::dumpStats(std::ostream &out)

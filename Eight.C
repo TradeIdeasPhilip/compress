@@ -207,6 +207,18 @@ int main(int argc, char **argv)
 
   RansBlockWriter writer(argv[1] + std::string(".μ8"));
 
+  TopLevel topLevel;
+  
+  for (char const *toEncode = file.begin();
+       toEncode < file.end();
+       toEncode++)
+  {
+    topLevel.encode(*toEncode,
+		    HistorySummary(file.preambleBegin(), file.end()),
+		    writer);
+  }
+  return 0;
+  
   if (file.size() > 0)
     simpleCopy(*file.begin(), writer);
   for (char const *toEncode = file.begin() + 1;
