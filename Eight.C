@@ -161,26 +161,10 @@ void addReferencedByte(RansRange range, RansBlockWriter &writer)
   addReferencedByteCost += range.idealCost();
 }
 
-int matchingByteCount(int64_t a, int64_t b)
-{
-  int64_t difference = a ^ b;
-  if (difference == 0)
-    // What does clzl(0) return?  It depends if you have optimization on or
-    // off!  This is the best possible case, a perfect match.
-    return 8;
-  return __builtin_clzl(difference) / 8;
-}
-
 // The index is the number of bytes of context.  These tell us how common and
 // how accurate each of our predictions are.
 int64_t contextMatchCount[9];
 int64_t predictionMatchCount[9];
-
-int64_t getContext(char const *ptr) {
-  char const *context = ptr - 8;
-  return *reinterpret_cast< int64_t const * >(context);
-};
-
 
 int main(int argc, char **argv)
 { // For simplicity just assume this.  It shouldn't be hard to fix if the
@@ -214,11 +198,12 @@ int main(int argc, char **argv)
        toEncode++)
   {
     topLevel.encode(*toEncode,
-		    HistorySummary(file.preambleBegin(), file.end()),
+		    HistorySummary(file.preambleBegin(), toEncode),
 		    writer);
   }
   return 0;
-  
+
+  /*
   if (file.size() > 0)
     simpleCopy(*file.begin(), writer);
   for (char const *toEncode = file.begin() + 1;
@@ -377,90 +362,5 @@ int main(int argc, char **argv)
       std::cout<<std::string(11, ' ');
     std::cout<<std::endl;
   }
-  /* Note:  I just found a bug in the previous results.  I don't know if this
-   * was a bug in the code.  It's possible that I copied the data wrong, but
-   * I'm really not sure.  Highlights:
-   * Filename:  test_data/cvs_nq_update.js.map
-   * File size:  18940
-   * simpleCopyCount:  1
-   * addNewByteCount:  4943
-   * addReferenedByteCount:  22564
-   * The top number should be the sum of the other numbers.  Somehow we were
-   * sending extra things to the encoder, which might explain the bad
-   * performance.
-   *
-   * Only that one file was wrong.  The numbers added up for the other two
-   * examples in these comments.  And the current code gives the right numbers
-   * for all three test files.
-   *
-   * Current results are remarkable!  These three test files were all within
-   * about 1% of gzip.
-   * [phil@joey-mousepad ~/compress]$ ./eight test_data/c*.js.map
-   * Filename:  test_data/cvs_nq_update.js.map
-   * File size:  18940
-   * simpleCopyCount:  1
-   * addNewByteCount:  100
-   * addReferenedByteCount:  18839
-   * addReferencedByteCost:  2501.6 bytes
-   * byte type cost:  100 * 0.945652 + 18839 * 0.000954721 = 112.551
-   * output file size:  1 + 100 + 112.551 + 2501.6 = 2715.15
-   * savings:  85.6644%
-   * 
-   * Context      Context      Prediction     Success
-   * length     match count    match count     rate
-   *       0       67263713       10907542   16.2161%
-   *       1       10907542        2580669   23.6595%
-   *       2        2580669         369020   14.2994%
-   *       3         369020         327533   88.7575%
-   *       4         327533         318096   97.1188%
-   *       5         318096         211356   66.4441%
-   *       6         211356          39136   18.5166%
-   *       7          39136          34030   86.9532%
-   *       8         180435         146405     81.14%
-   * [phil@joey-mousepad ~/compress]$ ./eight test_data/c*.ts
-   * Filename:  test_data/cvs_nq_update.ts
-   * File size:  27508
-   * simpleCopyCount:  1
-   * addNewByteCount:  125
-   * addReferenedByteCount:  27382
-   * addReferencedByteCost:  6173.59 bytes
-   * byte type cost:  125 * 0.972716 + 27382 * 0.000821372 = 144.08
-   * output file size:  1 + 125 + 144.08 + 6173.59 = 6443.67
-   * savings:  76.5753%
-   * 
-   * Context      Context      Prediction     Success
-   * length     match count    match count     rate
-   *       0      116532017        6227058   5.34365%
-   *       1        6227058         741731   11.9114%
-   *       2         741684         383240   51.6716%
-   *       3         383221         297063   77.5174%
-   *       4         297013         225238   75.8344%
-   *       5         225238         182114    80.854%
-   *       6         182114         133555   73.3359%
-   *       7         133555         102413   76.6823%
-   *       8         315600         213187   67.5497%
-   * [phil@joey-mousepad ~/compress]$ ./eight test_data/Analyze3.C
-   * Filename:  test_data/Analyze3.C
-   * File size:  10873
-   * simpleCopyCount:  1
-   * addNewByteCount:  92
-   * addReferenedByteCount:  10780
-   * addReferencedByteCost:  3046.9 bytes
-   * byte type cost:  92 * 0.860596 + 10780 * 0.00153252 = 95.6954
-   * output file size:  1 + 92 + 95.6954 + 3046.9 = 3235.6
-   * savings:  70.2419%
-   * 
-   * Context      Context      Prediction     Success
-   * length     match count    match count     rate
-   *       0       39508462        1958528   4.95724%
-   *       1        1958372         219250   11.1955%
-   *       2         219234          75954   34.6452%
-   *       3          75953          36680    48.293%
-   *       4          36680          20108   54.8201%
-   *       5          20108           9673   48.1052%
-   *       6           9673           5909   61.0876%
-   *       7           5909           3736   63.2256%
-   *       8          28109          24373   86.7089%
-   * [phil@joey-mousepad ~/compress]$ 
    */
 }

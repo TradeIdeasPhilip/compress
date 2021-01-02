@@ -68,12 +68,18 @@ public:
   // Initialize from numbers in the main program's domain.
   void load(uint32_t start, uint32_t freq, uint32_t scaleEnd)
   {
-    _start = rescale(start, scaleEnd);
-    // We are very careful about the rounding.  This entry's end should always
-    // be exactly the same as the next entry's start.
-    const uint32_t originalEnd = start + freq;
-    const uint32_t finalEnd = rescale(originalEnd, scaleEnd);
-    _freq = finalEnd - _start;
+    if (!scaleEnd)
+      // Divided by 0 error.
+      *this = RansRange(NULL);
+    else
+    {
+      _start = rescale(start, scaleEnd);
+      // We are very careful about the rounding.  This entry's end should
+      // always be exactly the same as the next entry's start.
+      const uint32_t originalEnd = start + freq;
+      const uint32_t finalEnd = rescale(originalEnd, scaleEnd);
+      _freq = finalEnd - _start;
+    }
   }
   RansRange(uint32_t start, uint32_t freq, uint32_t scaleEnd)
   { load(start, freq, scaleEnd); }

@@ -5,19 +5,23 @@
 #include "EightShared.h"
 
 
+// TODO / bug:  In some cases a bad input file can cause this program to dump
+// core.  That's not right.  It should always throw an exception if there is
+// a problem.
+
 int main(int argc, char **argv)
 { // See notes in Eight.C regarding isIntelByteOrder().
   assert(isIntelByteOrder());
 
   if ((argc < 2) || (argc > 3))
   {
-    std::cerr<<"syntax:  "<<argv[0]<<" [input_file] output_file"<<std::endl;
+    std::cerr<<"syntax:  "<<argv[0]<<" input_file [output_file]"<<std::endl;
     return 1;
   }
 
-  const std::string outputFileName = argv[argc-1];
-  const std::string inputFileName =
-    (argc == 3)?argv[1]:(outputFileName + ".μ8");
+  const std::string inputFileName = argv[1];
+  const std::string outputFileName =
+    (argc >= 3)?argv[2]:(inputFileName + ".re");
 
   RansBlockReader inFile(inputFileName.c_str());
 

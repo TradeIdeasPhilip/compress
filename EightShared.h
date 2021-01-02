@@ -27,12 +27,20 @@ extern const std::string preloadContents;
 // file and the preLoadContents) you can release the stuff at the beginning.
 extern const int maxBufferSize;
 
+
+
 class HistorySummary
 {
 private:
+  uint16_t _frequencies[256];
+  uint16_t _denominator;
+
+  static int matchingByteCount(int64_t a, int64_t b);
+  static int64_t getContext(char const *ptr);
+  
 public:
   // end is the byte that you are about to encode / decode.  We do not look
-  // at that.  (Standard STL, right before end.)
+  // at that.  (Standard STL, stop right before end.)
   // begin is the first byte available to the algorithm.  We are shooting for
   // maxBufferSize bytes.  If you provide extra, this algorithm will skip the
   // extra bytes from the beginning.  If you don't have enough bytes, add
