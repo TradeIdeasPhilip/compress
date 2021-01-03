@@ -7,11 +7,6 @@
 
 #include "EightShared.h"
 
-// Some of my test data starts with "#include"!  I chose this in part as a
-// joke as it will help some files.  It will probably do a better job than
-// all nulls.  If nothing else, it's a good test case.  Whatever string I
-// chose, I'm sure I'd find it at the front of some file.
-// TODO change this.
 // Originally I picked "#include" because a lot of files start with that
 // string.  On closer inspection that actually was the worst thing I could
 // do.  Every time the compressor saw "#include" it though there was a strong
@@ -19,7 +14,7 @@
 // I could still try to craft something clever, but the simple thing is to
 // try to make preloadContents something that is unlikely to match any part of
 // any real file.
-const std::string preloadContents = "#include";
+const std::string preloadContents = "\xdc\xe4\xeb\xf1\xf6\xfa\xfd\xff";
 
 const int maxBufferSize = 8000;
 

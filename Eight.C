@@ -182,6 +182,9 @@ int main(int argc, char **argv)
     return 1;
   }
 
+  // Longer would also work, but I know my intent was exactly 8 bytes.
+  assert(preloadContents.length() == 8);
+  
   File file(argv[1], preloadContents);
   if (!file.valid())
   {
