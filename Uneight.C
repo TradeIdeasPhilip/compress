@@ -35,14 +35,22 @@ int main(int argc, char **argv)
   }
   outFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
 
-  std::string buffer = preloadContents;
-  TopLevel topLevel;
-  while (!inFile.eof())
+  try
   {
-    char ch = topLevel.decode(&*buffer.begin(), &*buffer.end(), inFile);
-    outFile<<ch;
-    buffer += ch;
-    if (buffer.length() >= (size_t)maxBufferSize * 2)
-      buffer.erase(buffer.begin(), buffer.end() - maxBufferSize);
+    std::string buffer = preloadContents;
+    TopLevel topLevel;
+    while (!inFile.eof())
+    {
+      char ch = topLevel.decode(&*buffer.begin(), &*buffer.end(), inFile);
+      outFile<<ch;
+      buffer += ch;
+      if (buffer.length() >= (size_t)maxBufferSize * 2)
+	buffer.erase(buffer.begin(), buffer.end() - maxBufferSize);
+    }
   }
-} 
+  catch (std::exception &ex)
+  {
+    std::cout<<"Exception:  "<<ex.what()<<std::endl;
+    return 8;
+  }
+}

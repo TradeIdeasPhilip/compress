@@ -1,3 +1,8 @@
+// TODO / bug:  One of my test files compresses and decompresses perfectly,
+// and is about the expected size.  Another one crashes when I try to
+// decompress it.  Committing to save a lot of good work, but this is not
+// ready for prime time!
+
 #include <string.h>
 
 #include "EightShared.h"
@@ -6,6 +11,14 @@
 // joke as it will help some files.  It will probably do a better job than
 // all nulls.  If nothing else, it's a good test case.  Whatever string I
 // chose, I'm sure I'd find it at the front of some file.
+// TODO change this.
+// Originally I picked "#include" because a lot of files start with that
+// string.  On closer inspection that actually was the worst thing I could
+// do.  Every time the compressor saw "#include" it though there was a strong
+// chance it would see "#include" a second time, immediately after that.
+// I could still try to craft something clever, but the simple thing is to
+// try to make preloadContents something that is unlikely to match any part of
+// any real file.
 const std::string preloadContents = "#include";
 
 const int maxBufferSize = 8000;
@@ -25,8 +38,8 @@ inline int HistorySummary::matchingByteCount(int64_t a, int64_t b)
 {
   int64_t difference = a ^ b;
   if (difference == 0)
-    // What does clzl(0) return?  It depends if you have optimization on or
-    // off!  This is the best possible case, a perfect match.
+    // What does __builtin_clzl(0) return?  It depends if you have optimization
+    // on or off!  This is the best possible case, a perfect match.
     return 8;
   return __builtin_clzl(difference) / 8;
 }
@@ -53,32 +66,67 @@ HistorySummary::HistorySummary(char const *begin, char const *end)
       matchingByteCount(initialContext, getContext(compareTo));
     byteVsContextLengthToByteCount[count][(unsigned char)*compareTo]++;
   }
-  // For simplicity I'm starting with an older algorithm that I know doesn't
-  // give the best results.  I'm looking to find the longest match.  If there
-  // are several tied for longest, look at all of them.  denominator says
-  // how many matches we found at this length.
-  // TODO bring back the best weighting we tried.  All matches of length 8
+  // We are back to the best weighting we tried.  All matches of length 8
   // added together got a weight of 256.  All matches of length 7 put together
   // got a weight of 128.  ... matches of length 0, weight = 1.
-  int denominator = 0;
-  int highestLevelWithData = 8;
-  while (true)
+  //
+  // How to do it right.  Notice that we are typically looking at a small
+  // number of samples.  The highest value we'd expect to see is around 8,000
+  // which could be representing with 13 bits.  And the highest extra weight
+  // we will use is 256 which can be represented in 9 bits.  In the worst
+  // case all 8000 entries were all in the same place and all given a weight
+  // of 256.  Multiplying by 256 would add 8 bits so you need 17 bits to
+  // hold the largest number we might possible care about.
+  //
+  // We add extra bits for precision.  We have plenty to spare.  At this
+  // point we're not even worried about fitting into 31 bits.  We can use
+  // 64 bit number to do the intermediate work.  Add up all of the separate
+  // weighted sums for each byte.  Only after doing all the adding, consider
+  // trimming back.  See what the total is and decide how many bits we
+  // need to >> every value to get below 31 bits, maybe 30 to be safe.
+  // Standard rounding.  Some positive values might get rounded down to 0.
+  // Take the new total after shifting and rounding the individual values.
+  // Plug that into the rANS decoder.
+  //
+  // First you multiply each number in our table by some large integer.
+  // Maybe 2^62 / maxBufferSize.  Then we safely know that every individual
+  // number will be less than 2^62.  Then we iterate over the match sizes.
+  // Each match size gets a number, the number of matches for that size *
+  // 2^(8-(match size)).  Then we iterate over all of the values.  We divide
+  // each by the number we just computed for it's match size.  Then we add
+  // the result into a counter that is specific to the byte.  That leaves
+  // us with an array of 256 64-bit numbers.  So far no positive numbers have
+  // been rounded down to 0.  Now do the >> described above to get us into a
+  // reasonable range, possibly converting some things to 0.  Then take the
+  // actual total can give that to RansRange() as the denominator.
+  uint64_t totals[256];
+  memset(totals, 0, sizeof(totals));
+  for (int matchLength = 0; matchLength <= 8; matchLength++)
   {
-    assert(highestLevelWithData >= 0);
-    for (int byteIndex = 0; byteIndex < 256; byteIndex++)
-      denominator +=
-	byteVsContextLengthToByteCount[highestLevelWithData][byteIndex];
-    if (denominator > 0)
-      // Found the best one.  The remainer could only be shorter matches
-      // and we are currently ignoring them.
-      break;
-    highestLevelWithData--;
+    int count = 0;
+    for (int i = 0; i < 256; i++)
+      count += byteVsContextLengthToByteCount[matchLength][i];
+    if (count > 0)
+    {
+      const uint64_t weight = (1ul<<62) / (1<<(8 - matchLength)) / count;
+      for (int i = 0; i < 256; i++)
+	totals[i] += byteVsContextLengthToByteCount[matchLength][i] * weight;
+    }
   }
-  assert(sizeof(byteVsContextLengthToByteCount[highestLevelWithData])
-	 == sizeof(_frequencies));
-  memcpy(_frequencies, byteVsContextLengthToByteCount[highestLevelWithData],
-	 sizeof(_frequencies));
-  _denominator = denominator;
+  uint64_t grandTotal = 0;
+  for (int i = 0; i < 256; i++)
+    grandTotal += totals[i];
+  int reduceBy = 0;
+  // Quick and dirty scale back until it all fits into 31 bits.  We have enough
+  // bits to spare, we don't have to be super careful.
+  while (grandTotal >= RansRange::SCALE_END)
+  { // TODO Replace this loop with another call to __builtin_clzl().
+    grandTotal >>= 1;
+    reduceBy++;
+  }
+  _denominator = 0;
+  for (int i = 0; i < 256; i++)
+    _denominator += _frequencies[i] = totals[i]>>reduceBy;
 }
 
 bool HistorySummary::canEncode(char toEncode) const
@@ -88,7 +136,7 @@ bool HistorySummary::canEncode(char toEncode) const
 
 RansRange HistorySummary::encode(char toEncode) const
 {
-  uint16_t before = 0;
+  uint32_t before = 0;
   for (int index = 0; index < (unsigned char)toEncode; index++)
     before += _frequencies[index];
   return RansRange(before,
@@ -166,8 +214,8 @@ char TopLevel::decode(char const *begin,
   if (_counter == -1)
     smart = false;
   else
-  {
-    reader.eof();
+  { // Precondition:  Do not call if reader.eof() returns true.
+    assertFalse(reader.eof());
     smart = _smartCount.readValue(reader.getRansState(), reader.getNext());
     _smartCount.increment(smart);
   }

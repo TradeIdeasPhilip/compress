@@ -32,8 +32,8 @@ extern const int maxBufferSize;
 class HistorySummary
 {
 private:
-  uint16_t _frequencies[256];
-  uint16_t _denominator;
+  uint32_t _frequencies[256];
+  uint32_t _denominator;
 
   static int matchingByteCount(int64_t a, int64_t b);
   static int64_t getContext(char const *ptr);
