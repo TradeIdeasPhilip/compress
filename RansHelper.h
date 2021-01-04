@@ -133,6 +133,12 @@ public:
   double idealCost() const { return -std::log2(_freq / (double)SCALE_END); }
 };
 
+/* Simple assumption:  We do not directly write any frequency info into the
+ * compressed stream.  We start with the assumption that all symbols have
+ * a frequency of 1.  Immediately after the compressor sends a symbol to the
+ * compressed stream, it increments the frequency of that symbol.  Immediately
+ * after the decompressor decodes a symbol from the stream, it increments the
+ * frequency of that symbol. */
 class SymbolCounter
 {
 private:
@@ -205,8 +211,12 @@ public:
     // If there are extra 1's at the end, we could delete them and return the
     // memory.  Probably a small savingings in memory, not worth the cost.
   }
+
+  // For debug use only.
+  std::vector< uint32_t > const &getDebugFrequencies() const { return _freq; }
 };
 
+//#include <iostream>
 class BoolCounter
 {
 private:
@@ -224,7 +234,17 @@ public:
   {
     return _counter.getSymbol(r, pptr, 2);
   }
-  void reduceOld() { _counter.reduceOld(); }
+  void reduceOld()
+  {
+    //const auto preFalseCount = _counter.getDebugFrequencies()[0];
+    //const auto preTrueCount = _counter.getDebugFrequencies()[1];
+    _counter.reduceOld();
+    //const auto postFalseCount = _counter.getDebugFrequencies()[0];
+    //const auto postTrueCount = _counter.getDebugFrequencies()[1];
+    //std::cout<<"BoolCounter::reduceOld() "<<preFalseCount<<" vs. "
+    //     <<preTrueCount<<"  >>>  "<<postFalseCount<<" vs. "
+    //     <<postTrueCount<<std::endl;
+  }
 };
 
 inline bool isIntelByteOrder()

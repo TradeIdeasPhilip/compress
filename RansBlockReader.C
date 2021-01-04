@@ -22,6 +22,8 @@ bool RansBlockReader::eof()
   if (_remainingInBlock > 0)
     // We are in the middle of processing a block of data and we have at least
     // 1 item left in the current block.
+    // TODO This would be a perfect place to check if we are reading past the
+    // end of the file.  Report an exception ASAP.
     return false;
   // We need to start a new block.  This is why eof() is not const!
   if (_next >= _end)
@@ -34,7 +36,13 @@ bool RansBlockReader::eof()
     throw std::runtime_error("Incomplete file.");
   _remainingInBlock = *_next;
   _next++;
+  // TODO this would also be a good place to catch if we are reading past the
+  // end of the data.
+  //std::cout<<"Next block size:  "<<_remainingInBlock<<std::endl;
   if (_remainingInBlock < 0)
+    // This has been very helpful.  It is tempting to add more info to this
+    // value.  It's a 32 bit value and maxBlockSize currently requires only
+    // 13 bits.
     throw std::runtime_error("Corrupt file.");
   if (!_remainingInBlock)
   { // We found a properly marked end of file.

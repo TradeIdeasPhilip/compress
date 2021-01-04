@@ -8,6 +8,8 @@
 // TODO / bug:  In some cases a bad input file can cause this program to dump
 // core.  That's not right.  It should always throw an exception if there is
 // a problem.
+// See related TODO items in RansBlockReader.C.  We could add more checks
+// and I've marked the places.
 
 int main(int argc, char **argv)
 { // See notes in Eight.C regarding isIntelByteOrder().
@@ -44,8 +46,11 @@ int main(int argc, char **argv)
       char ch = topLevel.decode(&*buffer.begin(), &*buffer.end(), inFile);
       outFile<<ch;
       buffer += ch;
-      if (buffer.length() >= (size_t)maxBufferSize * 2)
-	buffer.erase(buffer.begin(), buffer.end() - maxBufferSize);
+      // TODO What's wrong with the code below?  When I uncomment it the input
+      // file appears to be corrupted.  Commenting these lines out is a
+      // temporary hack and not acceptable long run.
+      //if (buffer.length() >= (size_t)maxBufferSize * 2)
+      //buffer.erase(buffer.begin(), buffer.end() - maxBufferSize);
     }
   }
   catch (std::exception &ex)
