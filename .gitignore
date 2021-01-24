@@ -12,3 +12,5 @@ a3
 eight
 uneight
 output
+*.o
+*.s
