@@ -206,7 +206,6 @@ Eight is in progress right now.
 This was inspired by Analyze3.C, and it takes some of these ideas to an extreme.
 We *only* send one byte at a time to the entropy encoder.
 
-For each byte we look at the previous N bytes to gather statistics.
 For every byte we are looking at the previous **eight** bytes for context.
 We chose that number because it's easy to do all at once with a 64 bit integer.
 
