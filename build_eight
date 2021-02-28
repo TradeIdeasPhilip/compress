@@ -1,8 +1,10 @@
 #!/bin/sh
 
 g++ -o eight -O4 -ggdb -std=c++0x -Wall -lexplain \
-    Eight.C File.C RansBlockReader.C RansBlockWriter.C EightShared.C
+    Eight.C File.C RansBlockReader.C RansBlockWriter.C EightShared.C \
+    JumpBackSummary.C
 
 g++ -o uneight -O4 -ggdb -std=c++0x -Wall -lexplain \
-    Uneight.C File.C RansBlockReader.C RansBlockWriter.C EightShared.C
+    Uneight.C File.C RansBlockReader.C RansBlockWriter.C EightShared.C \
+    JumpBackSummary.C
     

@@ -59,6 +59,9 @@ class JumpBackSummary
 private:
   uint8_t _howFar[9];
 public:
+  // p points to the end of the buffer.  So we are looking at the 8 bytes
+  // before p.  We do not look at *p.  This is consistent with
+  // HistorySummary::getContext().
   JumpBackSummary(char const *p);
   uint8_t howFar(int matchLength) const { return _howFar[matchLength]; }
 };

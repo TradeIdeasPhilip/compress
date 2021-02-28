@@ -5,6 +5,8 @@
 
 #include <string.h>
 
+#include "JumpBackSummary.h"
+
 #include "EightShared.h"
 
 // Originally I picked "#include" because a lot of files start with that
@@ -51,15 +53,17 @@ HistorySummary::HistorySummary(char const *begin, char const *end)
   if (end - begin > maxBufferSize)
     begin = end - maxBufferSize;
   const int64_t initialContext = getContext(end);
+  JumpBackSummary jumpBackSummary(end);
   assert(maxBufferSize < 0xffff);
   uint16_t byteVsContextLengthToByteCount[9][256];
   memset(byteVsContextLengthToByteCount, 0,
 	 sizeof(byteVsContextLengthToByteCount));
-  for (char const *compareTo = begin; compareTo < end; compareTo++)
+  for (char const *compareTo = end - 1; compareTo >= begin; )
   {
     auto const count =
       matchingByteCount(initialContext, getContext(compareTo));
     byteVsContextLengthToByteCount[count][(unsigned char)*compareTo]++;
+    compareTo -= jumpBackSummary.howFar(count);
   }
   // We are back to the best weighting we tried.  All matches of length 8
   // added together got a weight of 256.  All matches of length 7 put together
@@ -67,7 +71,7 @@ HistorySummary::HistorySummary(char const *begin, char const *end)
   //
   // How to do it right.  Notice that we are typically looking at a small
   // number of samples.  The highest value we'd expect to see is around 8,000
-  // which could be representing with 13 bits.  And the highest extra weight
+  // which could be represented with 13 bits.  And the highest extra weight
   // we will use is 256 which can be represented in 9 bits.  In the worst
   // case all 8000 entries were all in the same place and all given a weight
   // of 256.  Multiplying by 256 would add 8 bits so you need 17 bits to
@@ -83,17 +87,18 @@ HistorySummary::HistorySummary(char const *begin, char const *end)
   // Take the new total after shifting and rounding the individual values.
   // Plug that into the rANS decoder.
   //
-  // First you multiply each number in our table by some large integer.
+  // This is how we apply the weights while minimizing round off error.
+  // First we multiply each number in our table by some large integer.
   // Maybe 2^62 / maxBufferSize.  Then we safely know that every individual
   // number will be less than 2^62.  Then we iterate over the match sizes.
-  // Each match size gets a number, the number of matches for that size *
+  // Each match size gets a number:  the number of matches for that size *
   // 2^(8-(match size)).  Then we iterate over all of the values.  We divide
   // each by the number we just computed for it's match size.  Then we add
   // the result into a counter that is specific to the byte.  That leaves
   // us with an array of 256 64-bit numbers.  So far no positive numbers have
   // been rounded down to 0.  Now do the >> described above to get us into a
   // reasonable range, possibly converting some things to 0.  Then take the
-  // actual total can give that to RansRange() as the denominator.
+  // actual total so we can give that to RansRange() as the denominator.
   uint64_t totals[256];
   memset(totals, 0, sizeof(totals));
   for (int matchLength = 0; matchLength <= 8; matchLength++)
