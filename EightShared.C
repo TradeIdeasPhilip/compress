@@ -4,6 +4,9 @@
 // ready for prime time!
 
 #include <string.h>
+#include <iostream>
+#include <map>
+#include <iomanip>
 
 #include "JumpBackSummary.h"
 
@@ -20,6 +23,131 @@ const std::string preloadContents = "\xdc\xe4\xeb\xf1\xf6\xfa\xfd\xff";
 
 const int maxBufferSize = 8000;
 
+
+/////////////////////////////////////////////////////////////////////
+// DebugDump
+/////////////////////////////////////////////////////////////////////
+
+class DebugDump
+{
+private:
+  void dumpChar(unsigned char ch, std::ostream &out)
+  {
+    out<<'\'';
+    if ((ch < ' ') || (ch >= 127))
+    { // Save and restore state:  https://stackoverflow.com/a/30968371/971955
+      std::ios oldState(nullptr);
+      oldState.copyfmt(out);
+      out<<"\\x"<<std::hex<<std::setw(2)<<std::setfill('0')<<(int)ch;
+      out.copyfmt(oldState);
+    }
+    else
+    {
+      out<<ch;
+    }
+    out<<'\'';
+  }
+  std::map<char, int64_t> _trivialEncodeCount;
+  std::map<int, int64_t> _jumpBackHowFar;
+public:
+  void trivialEncode(char ch) { _trivialEncodeCount[ch]++; }
+  void jumpBack(int howFar) { _jumpBackHowFar[howFar]++; }
+  ~DebugDump()
+  {
+    auto &out = std::cerr;
+    out<<"[[DebugDump start]]"<<std::endl;
+    // This is completely unavoidable.  The first time we see a new byte, we
+    // always do trivial encoding.
+    out<<"trivial encoding once:  ";
+    bool first = true;
+    for (auto const &kvp : _trivialEncodeCount)
+    {
+      auto const count = kvp.second;
+      if (count == 1)
+      {
+	if (first)
+	  first = false;
+	else
+	  out<<", ";
+	dumpChar(kvp.first, out);
+      }
+    }
+    if (first)
+      out<<"none";
+    out<<std::endl;
+    int extras = 0;
+    for (auto const &kvp : _trivialEncodeCount)
+    {
+      auto const count = kvp.second;
+      if (count > 1)
+      {
+	out<<"trivial encoding ";
+	dumpChar(kvp.first, out);
+	out<<' '<<count<<" times."<<std::endl;
+	extras += (count - 1);
+      }
+    }
+    // I was concerned that the new JumpBack code would skip too many
+    // interesting bytes.  In particular, what if you had to do a lot of
+    // trivial encodings because we were skipping some bytes.  I was
+    // considering using a different algorithm that looked at all bytes.
+    // So far the results say that will not be nesessary.  So far I have
+    // seen very few extra encodings, and the total output size is almost
+    // unchanged.
+    std::cout<<"A total of "<<extras<<" extra trivial encodings."<<std::endl;
+    
+    int jumpBackCount = 0;
+    int jumpBackSavings = 0;
+    for (auto const &kvp : _jumpBackHowFar)
+    {
+      auto const stepsBack = kvp.first;
+      auto const repeats = kvp.second;
+      jumpBackCount += repeats;
+      jumpBackSavings += (stepsBack - 1) * repeats;
+    }
+    // What I had to do + what I could skip = what I originally thought I had
+    // to do.
+    auto const jumpBackOriginal = jumpBackCount + jumpBackSavings;
+    for (auto const &kvp : _jumpBackHowFar)
+    {
+      auto const stepsBack = kvp.first;
+      auto const repeats = kvp.second;
+      auto const saved = (stepsBack-1) * repeats;
+      out<<"Jump Back by "<<stepsBack<<" steps "<<repeats<<" times to save "
+	 <<saved<<" comparisons, "<<(saved * 100.0 / jumpBackOriginal)
+	 <<'%'<<std::endl;
+    }
+    out<<"Total Jump Back savings:  "<<jumpBackSavings<<", "
+       <<(jumpBackSavings * 100.0 / jumpBackOriginal)<<'%'<<std::endl;
+    
+    out<<"[[DebugDump end]]"<<std::endl;
+
+    // TODO / bug:  On a really big input file the Jump Back statistics will
+    // include negative numbers.  I'm not sure why.  I thought it was an
+    // overflow, but switching to 64 bit integers didn't help.  ☹
+    
+    /* Sample output:
+[phil@joey-mousepad test_data]$ ../eight Analyze3.C
+[[DebugDump start]]
+trivial encoding once:  '\x80', '\x9c', '\x9d', '\xe2', '\x09', '\x0a', ' ', '!', '"', '#', '%', '&', ''', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2', '3', '4', '5', '6', '8', ':', ';', '<', '=', '>', 'A', 'B', 'C', 'D', 'F', 'H', 'I', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'Y', '[', '\', ']', '_', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '}', '~'
+trivial encoding 'E' 2 times.
+A total of 1 extra trivial encodings.
+Jump Back by 1 steps 53159648 times to save 0 comparisons, 0%
+Jump Back by 2 steps 539401 times to save 539401 comparisons, 0.981085%
+Jump Back by 3 steps 92270 times to save 184540 comparisons, 0.335649%
+Jump Back by 4 steps 27195 times to save 81585 comparisons, 0.14839%
+Jump Back by 5 steps 26430 times to save 105720 comparisons, 0.192288%
+Jump Back by 6 steps 10943 times to save 54715 comparisons, 0.0995179%
+Jump Back by 7 steps 6412 times to save 38472 comparisons, 0.0699745%
+Jump Back by 8 steps 14165 times to save 99155 comparisons, 0.180347%
+Total Jump Back savings:  1103588, 2.00725%
+[[DebugDump end]]
+    */
+    
+  }
+};
+
+static DebugDump debugDump;
 
 /////////////////////////////////////////////////////////////////////
 // HistorySummary
@@ -63,7 +191,9 @@ HistorySummary::HistorySummary(char const *begin, char const *end)
     auto const count =
       matchingByteCount(initialContext, getContext(compareTo));
     byteVsContextLengthToByteCount[count][(unsigned char)*compareTo]++;
-    compareTo -= jumpBackSummary.howFar(count);
+    auto const howFar = jumpBackSummary.howFar(count);
+    compareTo -= howFar;
+    debugDump.jumpBack(howFar);
   }
   // We are back to the best weighting we tried.  All matches of length 8
   // added together got a weight of 256.  All matches of length 7 put together
@@ -194,7 +324,7 @@ void TopLevel::encode(char toEncode,
     }
     else
     {
-      trivialEncode(toEncode, writer);      
+      trivialEncode(toEncode, writer);
     }
   }
   _counter++;
@@ -234,6 +364,7 @@ char TopLevel::decode(char const *begin,
 
 void TopLevel::trivialEncode(char toEncode, RansBlockWriter &writer)
 {
+  debugDump.trivialEncode(toEncode);
   writer.write(RansRange((unsigned char)toEncode, 1, 256));
 }
 
