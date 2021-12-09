@@ -11,7 +11,7 @@
 // When looking back at context, pretend like this data came at the very
 // beginning of the file, before the first actual byte of the file.
 // We do this mostly because it keeps the algorithm simple.
-// Don't actually try to encode compress or store this data!
+// Don't actually try to encode, compress, or store this data!
 extern const std::string preloadContents;
 
 // This should be tunable.  And probably we need to record the value in
@@ -60,7 +60,7 @@ public:
 };
 
 // The compressor gives bytes to this class one at a time.
-// The decompressor reads bytes from this class one a a time.
+// The decompressor reads bytes from this class one at a time.
 // This class will defer a lot of the hard work to HistorySummary.
 // This class will directly handle the cases that HistorySummary can't, using
 //   the simplist possible encoding.
