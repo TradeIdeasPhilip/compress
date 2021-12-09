@@ -178,7 +178,7 @@ I use limited look ahead to see which of those strings will definitely be used.
 I record commands in the output file to say which strings should be saved.
 
 Some strings will fall off the end.
-I have a way to reorder to the list, in case I know that a string is about to be lost and I will need it soon.
+I have a way to reorder the list, in case I know that a string is about to be lost and I will need it soon.
 At the end of the block we leave the string list in place.
 Within a block we carefully curate the strings.
 Between blocks we hope for the best, and typically do well.
