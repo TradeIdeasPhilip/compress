@@ -53,7 +53,7 @@ public:
  *
  * Ideally, each time you do these steps you will grab a string that is several
  * bytes long.  You can represent all of those bytes with a single number,
- * typically between 0 and 2k, or there abouts.  That's where we typically get
+ * typically between 0 and 2k, or thereabouts.  That's where we typically get
  * the bulk of our compression.  Then we use rANS to convert that number into
  * a series of bits.  Often the most common numbers will produce about 3 bits,
  * and a significant number of these numbers will produce less than a byte
@@ -89,14 +89,14 @@ private:
 
   // Invariant:  This table always contains all 256 one byte strings.  They
   // can never be deleted.  Unfortunately we need a little help from outside
-  // to gaurentee that.  In partiuclar, we rely on the main program to insert
+  // to guarantee that.  In particular, we rely on the main program to insert
   // exactly the right items.  But we do check canDelete().  If the main
   // program explicitly asks us to delete an undeletable item, that fails an
   // assertion.  If this class tries to automatically delete an item, we
-  // explicly choose an item that we are allowed to delete.
+  // explicitly choose an item that we are allowed to delete.
 
   // These items all make a lot of assumptions about T.  I've been a little
-  // vague on the specific assuptions, espeically while the code is still
+  // vague on the specific assumptions, especially while the code is still
   // changing so fast.  At least I've listed out the interesting cases here.
   static bool canDelete(T const &string) { return string.length() > 1; }
   static bool equal(T const &a, T const &b) { return a == b; }
@@ -163,7 +163,7 @@ public:
   // a string to get a number, then the decoder calls findAndPromote() on its
   // own copy of this table, that should convert the number back to the
   // original string.  Both versions of findAndPromote() will move the string
-  // to the front of the list, so they stay syncrhonized with each other.
+  // to the front of the list, so they stay synchronized with each other.
   T const &findAndPromote(size_t index)
   {
     promote(index);
@@ -177,7 +177,7 @@ public:
   // wouldn't try to add the word because you just saw that the word was
   // already in the list.  If you were in this position and you chose to split
   // the word pizza into two pieces, after you printed the second half, that's
-  // the only way you could get into a postion where you'd consider adding
+  // the only way you could get into a position where you'd consider adding
   // the word back to the list.  But there's no reason you'd split up the word.
   // But there is one tricky case where it might look reasonable to add a
   // string to the list, but it's already there.
@@ -191,10 +191,10 @@ public:
   // 5) Add "AA" to the list.  "AA", "A", and "AA" at 0, 1, and 2.  BAD!
   // We can fix this by checking if (!mru.isRecentDuplicate("AA")) before
   // trying to add "AA".  Normally after each grab the encoder will use its
-  // lookahead to decide wether or not to do the add, then it will send a
-  // boolean to the compressed file so the decoder knows if it should do the
+  // look ahead to decide whether or not to do the add, then it will send a
+  // Boolean to the compressed file so the decoder knows if it should do the
   // add or not.  However, there are two cases where we don't need any
-  // lookahead or anything added to the compressed file.  In both cases the
+  // look ahead or anything added to the compressed file.  In both cases the
   // compressor and the decompressor already have the data to make this
   // decision, so we don't bother to send a copy of the decision.  Right after
   // the first grab it's the same as !isRecntDuplicate(), in both cases we
@@ -208,7 +208,7 @@ public:
   // Also, we really don't want a duplicate in the table.  That would hurt
   // compression.  If the compressor sees a duplicate, what does it do?  Of
   // course it does NOT add the duplicate.  Normally at this point it would
-  // write a boolean value to the stream to tell the decompressor that it chose
+  // write a Boolean value to the stream to tell the decompressor that it chose
   // not to add a new string at this time.  But since both the encoder and the
   // decoder have access to this information, we don't really have to send that
   // bit.
@@ -221,7 +221,7 @@ public:
   // 4) Grab AB. MRU: AB ABAB ... The possible duplicate is at index 1.
   // 5) Delete AB.  MRU:  ABAB ... The possible duplicate is at index 0.
   // 6) Think about adding ABAB, but notice that it would be a duplicate.
-  // Unfortunately it's not always conveneint to check this value right away.
+  // Unfortunately it's not always convenient to check this value right away.
   // The main program needs to do the delete before the add.  And the
   // compressed file will include the delete before the add.
   // isRecentDuplicate() refers to the add.  Set recentDelete to true if you
@@ -273,7 +273,7 @@ public:
   // You can only delete from the front of the list.  (And you can only add to
   // the front of the list.)  That makes the instructions cheap and easy to
   // encode.  Effectively is it saying "now" so it doesn't need any arguments.
-  // The encoder uses the same lookahead process to say which strings we will
+  // The encoder uses the same look ahead process to say which strings we will
   // want to save for future use, and which strings have been used for the last
   // time so we don't need them any more.
   //

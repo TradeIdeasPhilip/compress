@@ -22,6 +22,39 @@
 
 #include "LzBlockShared.h"
 
+/* Recent thoughts and plans, 12/21/2021
+ * 1)  The maximum length of the MRU list can be set on a per block basis.  We
+ *     aim for 4096 entries, but if that fails we add more.  On encoding we
+ *     might have to redo part of the work for a block, but not all of the
+ *     work. The first pass creates a list of interesting back references.
+ *     The second pass will trim some of those.  And the second pass will
+ *     rearranges things in case a useful MRU item was about to fall off the
+ *     end.  The rearranging part might need to be redone if we change the
+ *     max length, but nothing else.
+ * 2)  Should the block header state the largest MRU index used in the block?
+ *     Usually that will trim a lot of items, but the probability of those
+ *     items was already low, so it might be a small improvement.
+ * 3)  The probabilities of the various MRU items should *not* be dynamic.
+ *     If we can describe the probabilities up front, in the header, suddenly
+ *     the code gets *a lot* faster.  Updating the probabilities *each time*
+ *     we write something to the entropy encoder makes things very slow.
+ * 4)  How does the header describe the probabilities?  One option available
+ *     is to say "use the probabilities we measured in the previous block."
+ *     That might work pretty well most of the time.
+ * 5)  Sometimes you will *not* want to use the previous statistics.  In
+ *     particular, in the first block.  We need some way to describe the
+ *     probabilities efficiently.  We do not want the header to contain a 32
+ *     bit number for each of the 1024ish entries in the MRU.  In the past
+ *     we've tried using a series of line segments to estimate a curve like
+ *     this.
+ * 6)  Usually the first few entries in the MRU table are the biggest and
+ *     would gain the most from more precision.  And they often form strange
+ *     curves that aren't nearly as smooth as the rest.  Maybe the header
+ *     includes an 8 bit number specifying the probability of each of the
+ *     first few entries.  This might be done all the time, and we choose
+ *     between #4 and #5 for the rest of the entries on a block by block
+ *     basis. */
+
 /* This was copied from revision 1.13 of LzStream.C
  *
  * This fork looks at the idea of using a small amount of look-ahead to decide
@@ -61,24 +94,24 @@
  * know will be used again.
  *
  * This suggests an interesting idea.  The header of each block would include
- * a small intger N.  Every time the encoder builds a new string we compare the
- * length of that string to N.  If the string has N or fewer bytes, we always
- * add it to the MRU list.  Otherwise we use lookahead to decide whether or not
- * to add the string, and we send a boolean to the output to record our
- * decision.  Presumably we use lookahead to determine what's the best value
- * for N, otherwise we wouldn't bother to save its value in each block and it
- * would just be a constant.
+ * a small integer N.  Every time the encoder builds a new string we compare
+ * the length of that string to N.  If the string has N or fewer bytes, we
+ * always add it to the MRU list.  Otherwise we use look ahead to decide
+ * whether or not to add the string, and we send a Boolean to the output to
+ * record our decision.  Presumably we use look ahead to determine what's the
+ * best value for N, otherwise we wouldn't bother to save its value in each
+ * block and it would just be a constant.
  *
  * A slight variation:  Each block header contains more information about the
  * probability of saving a string based on the string's length.  E.g. 2 or 3,
  * bytes -> 100% chance.  4 -> 40%, 5 -> 30%, >= 6 -> 20%.  Seems like the
  * length of the new string is a useful piece of information that the
  * compressor and the decompressor share.  I don't have that data in front of
- * me at the moment, but I've definately seen trends similar to what I've
+ * me at the moment, but I've definitely seen trends similar to what I've
  * described, and that's huge for the entropy encoder.
  *
- * In light of all of the recent changes, do we still limit outselves to only
- * create and save a new string after OTHER time that we print a string?  Would
+ * In light of all of the recent changes, do we still limit ourselves to only
+ * create and save a new string every OTHER time that we print a string?  Would
  * there be any value to deciding this at run time, each block?
  *
  * LZMW.C also had a delete command.  The last time we used a string
@@ -172,10 +205,10 @@ std::ostream &operator <<(std::ostream &out, Profiler const &profiler)
   return out;
 }
 
-// For simpliciy and performance, use mmap to read the entire file into
+// For simplicity and performance, use mmap() to read the entire file into
 // memory.  This implementation is lacking a few things.  We can't handle
 // streaming data / pipes.  The file size is limited.  These have nothing to
-// do with the compressions algorithm.  You could make another implementation
+// do with the compression algorithm.  You could make another implementation
 // which handles those cases better.
 class File
 {
@@ -424,7 +457,7 @@ private:
      * 
      * Notice that [0] is also a prefix of the file.  We didn't choose it
      * because we found a longer prefix, and that's always our preference.  But
-     * we know that [0] will be in the file because that's an invarient of the
+     * we know that [0] will be in the file because that's an invariant of the
      * MruList class.  So we know we'll always find a prefix with a length of
      * at least one byte.  So we know we'll always make progress.
      *
@@ -492,8 +525,8 @@ public:
     Profiler::Update pu(profilers.possibleMru_findStrings);
     char const *lastPrint = NULL;
     // TODO 4096+2048 is just a rough estimate which works with my test
-    // data.  We need a better way of dealing with this.  Anyting bigger than
-    // 4096 is not gaurenteed to work.  However, making this number too small
+    // data.  We need a better way of dealing with this.  Anything bigger than
+    // 4096 is not guaranteed to work.  However, making this number too small
     // will rob us of some potential compression in most files.  We probably
     // need some smarter test, possibly trying a higher number, then trying
     // again if there's a failure later in the algorithm.
