@@ -38,6 +38,8 @@
  *     If we can describe the probabilities up front, in the header, suddenly
  *     the code gets *a lot* faster.  Updating the probabilities *each time*
  *     we write something to the entropy encoder makes things very slow.
+ *     Just changing the size of the table, so the probability of any index
+ *     above N goes to 0, is still fast.
  * 4)  How does the header describe the probabilities?  One option available
  *     is to say "use the probabilities we measured in the previous block."
  *     That might work pretty well most of the time.
@@ -55,7 +57,7 @@
  *     between #4 and #5 for the rest of the entries on a block by block
  *     basis. */
 
-/* This was copied from revision 1.13 of LzStream.C
+/* This was copied from LzStream.C
  *
  * This fork looks at the idea of using a small amount of look-ahead to decide
  * which strings to save and which to discard.  LzStream.C uses the simple
@@ -416,9 +418,11 @@ struct Profilers
 std::ostream &operator <<(std::ostream &out, Profilers const &p)
 {
   const auto dump = [&out] (char const *name, Profiler const &p)
-  { out<<"﴾"<<name<<" "<<p<<"﴿ "; };
+  { out<<"«"<<name<<" "<<p<<"» "; };
   // ORNATE LEFT PARENTHESIS 64830 U+fd3e
   // ORNATE RIGHT PARENTHESIS 64831 U+fd3f
+  // LEFT-POINTING DOUBLE ANGLE QUOTATION MARK 171 U+ab
+  // RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK 187 U+bb
   dump("PossibleMru::findLongest", p.possibleMru_findLongest);
   dump("PossibleMru::addString", p.possibleMru_addString);
   dump("PossibleMru::findStrings", p.possibleMru_findStrings);
@@ -568,232 +572,6 @@ public:
 
   size_t size() const { return _alphabetical.size(); }
 };
-/*
-// Basically a doubly linked list.
-//
-// We use this strange structure to try to make things faster.  In some cases
-// an array is faster than a linked list, even with a workload like ours where
-// we are constantly inserting and deleting items all over.  The array just
-// uses memory more efficiently.  All of the data is close together so the
-// cache can do its thing.  This data structure should give us better cache
-// performance than a normal linked list.  In practice the program ran 25%
-// faster when we switched from std::vector to a CompactLinkedList, with a
-// lot of variability.
-//
-// Note that this data structure only copies an item of type T when adding
-// a new item.  The std::vector version of the code would copy every single
-// item when you moved an item to the front of the list.  Now that we are
-// using CompactLinkedList it's tempting to get rid of PString and use
-// std::sting instead.
-template < class T >
-class CompactLinkedList
-{
-private:
-  typedef int16_t Cursor;
-  struct Cursors { Cursor previous; Cursor next; };
-  Cursor _freeList;
-  std::vector< Cursors > _allCursors;
-  std::vector< T > _data;
-  int _size;
-
-  // Assert that c would be a valid input to value().  We were pointing to
-  // random data at one point, and this assert() would catch it if we did it
-  // again.
-  // assertValidForData(c) checks that _data[c-1] would be valid.
-  void assertValidForData(Cursor c) const
-  {
-    assert((c > 0) && (c < _allCursors.size()));
-  }
-
-  // Same as assertValidForData() but 0 is also allowed.  0 is basically the
-  // NULL pointer.  That marks the beginning and end of the list.
-  // assertValid(c) checks that _allCursors[c] would be valid.
-  void assertValid(Cursor c) const
-  {
-    assert((c >= 0) && (c < _allCursors.size()));
-  }
-  
-  void remove(Cursor c)
-  {
-    _size--;
-    assertValidForData(c);
-    Cursors &current = _allCursors[c];
-    Cursors &previous = _allCursors[current.previous];
-    Cursors &next = _allCursors[current.next];
-    previous.next = current.next;
-    next.previous = current.previous;
-  }
-
-  void addToFreeList(Cursor c)
-  {
-    assertValid(_freeList);
-    assertValidForData(c);
-    Cursors &current = _allCursors[c];
-    current.next = _freeList;
-    assert(current.previous = -1);
-    _freeList = c;
-  }
-
-  void addToFront(Cursor c)
-  {
-    assertValidForData(c);
-    Cursors &beforeFront = _allCursors[0];  // And after last.
-    Cursors &previousFront = _allCursors[beforeFront.next];
-    Cursors &current = _allCursors[c];
-    current.next = beforeFront.next;
-    current.previous = 0;
-    beforeFront.next = c;
-    previousFront.previous = c;
-  }
-  
-  T const &value(Cursor c) const { assertValidForData(c); return _data[c-1]; }
-  T &value(Cursor c) { assertValidForData(c); return _data[c-1]; }
-    
-  template < class P >
-  Cursor find(P const &matches, bool forward) const
-  {
-    Cursor c = 0;
-    while (true)
-    {
-      Cursors const &before = _allCursors[c];
-      c = forward?before.next:before.previous;
-      if (c == 0)
-	return 0;  // Not found.
-      if (matches(value(c)))
-	return c;
-    }
-  }
-
-public:
-  CompactLinkedList(int size) : _freeList(0), _size(0)
-  {
-    _data.resize(size);
-    _allCursors.resize(size+1);
-    _allCursors[0] = { 0, 0 };  // Empty.
-    for (int i = 1; i <= size; i++)
-      addToFreeList(i);    
-  }
-
-  template < class P >
-  int findAndPromote(P const &matches)
-  {
-    int result = 0;
-    const Cursor c = find([&](T const &value) -> bool {
-	if (matches(value)) return true;
-	result++;
-	return false;
-      }, true);
-    if (c == 0)
-      return -1;  // Not found;
-    remove(c);
-    addToFront(c);
-    return result;
-  }
-
-  void addToFront(T const &toAdd)
-  {
-    _size++;
-    assert(!full());
-    const Cursor c = _freeList;
-    assertValidForData(c);
-    Cursors &current = _allCursors[c];
-    _freeList = current.next;
-    assertValid(_freeList);
-    addToFront(c);
-    value(c) = toAdd;
-  }
-
-  template < class D >
-  void addToFront(T const &toAdd, D const &discriminate)
-  {
-    if (full())
-    {
-      // const Cursor c = find(mayDelete, false);
-      int timeToLive = _allCursors.size();
-      Cursor c = _allCursors[0].previous;
-      while (true)
-      {
-	const Action action = discriminate(value(c));
-	if (action == Action::Delete)
-	  break;
-	assert(timeToLive--);
-	if (action == Action::Skip)
-	  c = _allCursors[c].previous;
-	else
-	{ // TODO at some point we want to replace the rotate command with a
-	  // delete most recent command.  However, I want to make just one
-	  // change at a time.  In particular, I want to see how this new
-	  // datastructure compares to the old one, with no other changes.
-	  // Naively a linked list (the current data structure) should be
-	  // faster than an array in this case.  But sometimes because of
-	  // the way memory works an array is faster.
-	  assert(action == Action::Rotate);
-	  const Cursor p = _allCursors[c].previous;
-	  remove(c);
-	  addToFront(c);
-	  c = p;
-	}
-      }
-      remove(c);
-      addToFreeList(c);
-    }
-    addToFront(toAdd);
-  }
-
-  T const &getFront() const { return value(0); }
-
-  bool full() const { return !_freeList; }
-
-  int size() const { return _size; }
-  void verifySize() const
-  {
-    int newCount = 0;
-    Cursor c = 0;
-    while (true)
-    {
-      c = _allCursors[c].next;
-      if (!c)
-	break;
-      newCount++;
-    }
-    assert(newCount == _size);
-  }
-
-  class Iterator
-  {
-  private:
-    CompactLinkedList< T > const *_list;
-    Cursor _c;
-  public:
-    Iterator(CompactLinkedList< T > const *l = NULL) : _list(l), _c(0) { }
-
-    Iterator &operator ++() // Prefix
-    {
-      Cursors const &current = _list->_allCursors[_c];
-      _c = current.next;
-      return *this;
-    }
-
-    Iterator &operator --() // Prefix
-    {
-      Cursors const &current = _list->_allCursors[_c];
-      _c = current.previous;
-      return *this;
-    }
-
-    bool operator ==(Iterator const &other) const
-    { return (_list == other._list) && (_c == other._c); }
-
-    bool operator !=(Iterator const &other) const
-    { return !(other == *this); }
-
-    T const &operator *() const { return _list->value(_c); }
-    T const *operator ->() const { return &_list->value(_c); }
-  };
-
-  Iterator begin() const { return ++Iterator(this); }
-  Iterator end() const { return Iterator(this); }
-  };*/
 
 class FinalOrderMru
 {
@@ -818,17 +596,16 @@ private:
   void add(PString const &toAdd)
   {
     Profiler::Update pu(profilers.finalOrderMru_add);
-    // TODO the next line fails a lot.  Need to take a better action.
-    assert(!_strings.full());
     _strings.addToFront(toAdd);
+    // TODO This would be a good place to check for end of block.
   }
 
 public:
+  // TODO not max size, but desired max size.
   FinalOrderMru(int maxSize = 4096) : _strings(maxSize)
   {
     for (int i = 255; i >= 0; i--)
       _strings.addToFront(PString((char)i));
-    assert(!_strings.full());
   }
 
   void reportStrings(char const *start, std::vector< WriteInfo > &toWrite,
@@ -898,8 +675,6 @@ public:
 	 it != _strings.visibleEnd(); it++)
       possibleMru.addString(*it);
   }
-
-  bool full() const { return _strings.full(); }
 
   void restoreAllFromRecycleBin() { _strings.restoreAllFromRecycleBin(); }
 };
@@ -978,8 +753,6 @@ void compress(char const *begin, char const *end)
   }
   std::cerr<<"TOTAL "<<total<<std::endl;
   */
-  std::cerr<<"finalOrderMru.full() = "<<(finalOrderMru.full()?"TRUE":"FALSE")
-	   <<std::endl;
   //std::cerr<<"Final strings, length × use count: ";
   std::map< size_t, int > countByLength;
   std::map< size_t, int > countByLengthUsed;

@@ -22,6 +22,12 @@ This is especially helpful with control decisions.
 E.g. I have a 5% chance of applying option A, a 2% chance of applying option B, and a 93% chance applying option C.
 Huffman did okay when the probabilities weren't so skewed.
 
+An extreme but common example is encoding a Boolean.
+E.g. Do we save or abandon the last time we looked at?
+The best Huffman could do is 1 bit for each Boolean.
+I.e. no compression at all.
+rANS can make a Boolean very small, if the probability of true is a lot different from the probability of false.
+
 The worst part of rANS is that you have to reverse the order of the items.
 That pretty much forces us to encode things in blocks.
 You can keep the items in memory until you have a decent number of them.
