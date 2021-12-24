@@ -612,19 +612,42 @@ public:
 		     std::unordered_map< PString, int > &recentUses,
 		     std::vector< RansRange > &toEntropyEncoder)
   {
+    std::map< int, int > saveYesCount;
+    std::map< int, int > saveAllCount;
+
+    int indexCount = 0;
+    double indexCost = 0.0;
+    int deleteCount = 0;
+    double deleteCost = 0.0;
+    int writeCount = 0;
+    double writeCost = 0.0;
+
     Profiler::Update pu(profilers.finalOrderMru_reportStrings);
-    const auto saveIndex = [&toEntropyEncoder, this](int index){
-      toEntropyEncoder.push_back(_indexCounter.getRange(index,
-							_strings.size()));
+    const auto saveIndex = [&](int index){
+      const auto range = _indexCounter.getRange(index, _strings.size());
+      toEntropyEncoder.push_back(range);
       _indexCounter.increment(index);
+      indexCount++;
+      indexCost += range.idealCost();
     };
-    const auto saveDelete = [&toEntropyEncoder, this](bool value) {
-      toEntropyEncoder.push_back(_deleteStats.getRange(value));
+    const auto saveDelete = [&](bool value) {
+      const auto range = _deleteStats.getRange(value);
+      toEntropyEncoder.push_back(range);
       _deleteStats.increment(value);
+      deleteCount++;
+      deleteCost += range.idealCost();
     };
-    const auto saveWrite = [&toEntropyEncoder, this](int length, bool value){
-      toEntropyEncoder.push_back(_writeStats.getRange(length, value));
+    const auto saveWrite = [&](int length, bool value){
+      const auto range = _writeStats.getRange(length, value);
+      toEntropyEncoder.push_back(range);
       _writeStats.increment(length, value);
+      saveAllCount[length]++;
+      if (value)
+      {
+	saveYesCount[length]++;
+	writeCount++;
+      }
+      writeCost += range.idealCost();
     };
     char const *savedOlder = NULL;
     char const *savedNewer = NULL;
@@ -667,6 +690,23 @@ public:
 	    saveWrite(string.length(), false);
       }
     }
+
+    /*
+    std::cerr<<"length\tyes\tall\t%"<<std::endl;
+    for (auto const &kvp : saveAllCount)
+    {
+      const int length = kvp.first;
+      const int allCount = kvp.second;
+      const int yesCount = saveYesCount[length];
+      std::cerr<<length<<'\t'<<yesCount<<'\t'<<allCount<<'\t'
+	       <<(yesCount * 100.0 / allCount)<<std::endl;
+    }
+    */
+    std::cerr<<"count\tbytes\tbts per\treason"<<std::endl
+	     <<indexCount<<'\t'<<(indexCost/8)<<'\t'<<(indexCost/indexCount)<<'\t'<<"Index"<<std::endl
+	     <<deleteCount<<'\t'<<(deleteCost/8)<<'\t'<<(deleteCost/deleteCount)<<'\t'<<"Delete"<<std::endl
+	     <<writeCount<<'\t'<<(writeCost/8)<<'\t'<<(writeCost/writeCount)<<'\t'<<"Write"<<std::endl;
+
   }
   
   void copyTo(PossibleMru &possibleMru)
