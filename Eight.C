@@ -109,15 +109,6 @@
  * the one we want to encode?  The decompressor will need the full array.
  */
 
-// The input is the probability of something happening.  The output is the
-// cost in bits to represent this with an ideal entropy encoder.  We use this
-// all over for prototyping.  Just ask for the cost, don't actually bother to
-// do the encoding.
-double pCostInBits(double ratio)
-{
-  return -std::log2(ratio);
-}
-
 // For simplicity make no assumptions about ch.  It's just a number between
 // 0 and 255.
 void simpleCopy(unsigned char ch, RansBlockWriter &writer)

@@ -10,6 +10,15 @@
 #include "rans64.h"
 
 
+// The input is the probability of something happening.  The output is the
+// cost in bits to represent this with an ideal entropy encoder.  We use this
+// all over for prototyping.  Just ask for the cost, don't actually bother to
+// do the encoding.
+inline double pCostInBits(double ratio)
+{
+  return -std::log2(ratio);
+}
+
 /* The RansRange class is a convenient way to translate between arbitrary
  * fractions (like the actual number of times we've seen this symbol / the
  * actual number of times we've seen any symbol) and fractions that rANS likes
@@ -130,7 +139,7 @@ public:
     _freq = SCALE_END - _freq;
   }
 
-  double idealCost() const { return -std::log2(_freq / (double)SCALE_END); }
+  double idealCost() const { return pCostInBits(_freq / (double)SCALE_END); }
 };
 
 /* Simple assumption:  We do not directly write any frequency info into the

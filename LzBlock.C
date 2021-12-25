@@ -702,6 +702,70 @@ public:
 	       <<(yesCount * 100.0 / allCount)<<std::endl;
     }
     */
+
+    class Counter
+    {
+    private:
+      int _all;
+      int _yes;
+    public:
+      Counter(): _all(0), _yes(0) { }
+      void update(int all, int yes) { _all += all; _yes += yes; }
+      double getCostInBits(std::ostream *dump = NULL) const
+      {
+	const double yesRatio = _yes / (double)_all;
+	const double yesCost = _yes * pCostInBits(yesRatio);
+	const int no = _all - _yes;
+	const double noRatio = no / (double)_all;
+	const double noCost = no * pCostInBits(noRatio);
+	const double totalCost = yesCost + noCost;
+	if (dump)
+	{
+	  (*dump)<<"  Yes count: "<<_yes<<", "<<(yesRatio*100)<<"%, bits: "
+	    	 <<yesCost<<std::endl
+	    	 <<"  No count: "<<no<<", "<<(noRatio*100)<<"%, bits: "
+                 <<noCost<<std::endl
+	    	 <<"  Total bits: "<<totalCost<<", bytes: "<<(totalCost/8)
+		 <<std::endl;
+	}
+	return totalCost;
+      }
+    };
+    Counter counter2;
+    Counter counter3;
+    Counter counterOthers;
+    for (auto const &kvp : saveAllCount)
+    {
+      const int length = kvp.first;
+      if (length == 1)
+      {
+	continue;
+      }
+      const int all = kvp.second;
+      const int yes = saveYesCount[length];
+      switch (length)
+      {
+      case 2:
+	counter2.update(all, yes);
+	break;
+      case 3:
+	counter3.update(all, yes);
+	break;
+      default:
+	counterOthers.update(all, yes);
+	break;
+      }
+    }
+    double costInBits = 0.0;
+    std::cerr<<">>> Length = 2"<<std::endl;
+    costInBits += counter2.getCostInBits(&std::cerr);
+    std::cerr<<">>> Length = 3"<<std::endl;
+    costInBits += counter3.getCostInBits(&std::cerr);
+    std::cerr<<">>> Length > 3"<<std::endl;
+    costInBits += counterOthers.getCostInBits(&std::cerr);
+    std::cerr<<">>> Total cost in bits: "<<costInBits
+	     <<", in bytes: "<<(costInBits/8)<<std::endl;
+    
     std::cerr<<"count\tbytes\tbits/\treason"<<std::endl
 	     <<indexCount<<'\t'<<(indexCost/8)<<'\t'<<(indexCost/indexCount)<<'\t'<<"Index"<<std::endl
 	     <<deleteCount<<'\t'<<(deleteCost/8)<<'\t'<<(deleteCost/deleteCount)<<'\t'<<"Delete"<<std::endl
