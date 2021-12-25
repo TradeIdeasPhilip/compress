@@ -23,7 +23,7 @@ E.g. I have a 5% chance of applying option A, a 2% chance of applying option B, 
 Huffman did okay when the probabilities weren't so skewed.
 
 An extreme but common example is encoding a Boolean.
-E.g. Do we save or abandon the last time we looked at?
+E.g. Do we save or abandon the last item we looked at?
 The best Huffman could do is 1 bit for each Boolean.
 I.e. no compression at all.
 rANS can make a Boolean very small, if the probability of true is a lot different from the probability of false.

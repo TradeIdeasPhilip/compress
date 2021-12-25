@@ -129,8 +129,8 @@
  * some of the success of LZMW.C, but fixing some things that bothered me.
  */
 
-// Production:  g++ -o lz_bcompress -O4 -ggdb -std=c++0x LzBlock.C
-// Profiler:  g++ -o lz_bcompress -O2 -pg -ggdb -std=c++0x LzBlock.C
+// Production:  g++ -o lz_bcompress -O4 -ggdb -std=c++14 LzBlock.C
+// Profiler:  g++ -o lz_bcompress -O2 -pg -ggdb -std=c++14 LzBlock.C
 //            gprof ./lz_bcompress gmon.out > analysis.txt
 
 
@@ -645,8 +645,8 @@ public:
       if (value)
       {
 	saveYesCount[length]++;
-	writeCount++;
       }
+      writeCount++;
       writeCost += range.idealCost();
     };
     char const *savedOlder = NULL;
@@ -702,7 +702,7 @@ public:
 	       <<(yesCount * 100.0 / allCount)<<std::endl;
     }
     */
-    std::cerr<<"count\tbytes\tbts per\treason"<<std::endl
+    std::cerr<<"count\tbytes\tbits/\treason"<<std::endl
 	     <<indexCount<<'\t'<<(indexCost/8)<<'\t'<<(indexCost/indexCount)<<'\t'<<"Index"<<std::endl
 	     <<deleteCount<<'\t'<<(deleteCost/8)<<'\t'<<(deleteCost/deleteCount)<<'\t'<<"Delete"<<std::endl
 	     <<writeCount<<'\t'<<(writeCost/8)<<'\t'<<(writeCost/writeCount)<<'\t'<<"Write"<<std::endl;
