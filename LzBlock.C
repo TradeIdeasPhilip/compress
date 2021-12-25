@@ -24,13 +24,9 @@
 
 /* Recent thoughts and plans, 12/21/2021
  * 1)  The maximum length of the MRU list can be set on a per block basis.  We
- *     aim for 4096 entries, but if that fails we add more.  On encoding we
- *     might have to redo part of the work for a block, but not all of the
- *     work. The first pass creates a list of interesting back references.
- *     The second pass will trim some of those.  And the second pass will
- *     rearranges things in case a useful MRU item was about to fall off the
- *     end.  The rearranging part might need to be redone if we change the
- *     max length, but nothing else.
+ *     aim for 4096 entries, but if that fails we add more.  This seemd
+ *     complicated back when we would rotate the list sometimes to keep an item
+ *     from falling off the end, but that code was removed some time ago.
  * 2)  Should the block header state the largest MRU index used in the block?
  *     Usually that will trim a lot of items, but the probability of those
  *     items was already low, so it might be a small improvement.
@@ -123,11 +119,6 @@
  * The entropy encoder worked better because we had so many more low numbers
  * to compress.  We might use a similar strategy, but only for the last block.
  * It wouldn't make sense anywhere else. */
-
-
-/* This is a second attempt at a new compression program.  This is based on
- * some of the success of LZMW.C, but fixing some things that bothered me.
- */
 
 // Production:  g++ -o lz_bcompress -O4 -ggdb -std=c++14 LzBlock.C
 // Profiler:  g++ -o lz_bcompress -O2 -pg -ggdb -std=c++14 LzBlock.C
@@ -612,15 +603,22 @@ public:
 		     std::unordered_map< PString, int > &recentUses,
 		     std::vector< RansRange > &toEntropyEncoder)
   {
-    std::map< int, int > saveYesCount;
-    std::map< int, int > saveAllCount;
-
     int indexCount = 0;
     double indexCost = 0.0;
-    int deleteCount = 0;
+    int deleteCount = 0;    
     double deleteCost = 0.0;
+    int deleteYesCount = 0;
     int writeCount = 0;
     double writeCost = 0.0;
+
+    int currentlyAvailableToDelete = 0;
+    struct DeleteInfo
+    {
+      int available;
+      int opportunities;
+      bool deleteThis;
+    };
+    std::vector < DeleteInfo > allDeleteInfo;
 
     Profiler::Update pu(profilers.finalOrderMru_reportStrings);
     const auto saveIndex = [&](int index){
@@ -635,19 +633,18 @@ public:
       toEntropyEncoder.push_back(range);
       _deleteStats.increment(value);
       deleteCount++;
+      deleteYesCount += value;
       deleteCost += range.idealCost();
+      allDeleteInfo.push_back({ .available= currentlyAvailableToDelete, .opportunities= (int)allDeleteInfo.size(), .deleteThis= value });
+      currentlyAvailableToDelete -= value;
     };
     const auto saveWrite = [&](int length, bool value){
       const auto range = _writeStats.getRange(length, value);
       toEntropyEncoder.push_back(range);
       _writeStats.increment(length, value);
-      saveAllCount[length]++;
-      if (value)
-      {
-	saveYesCount[length]++;
-      }
       writeCount++;
       writeCost += range.idealCost();
+      currentlyAvailableToDelete += value;
     };
     char const *savedOlder = NULL;
     char const *savedNewer = NULL;
@@ -703,74 +700,37 @@ public:
     }
     */
 
-    class Counter
-    {
-    private:
-      int _all;
-      int _yes;
-    public:
-      Counter(): _all(0), _yes(0) { }
-      void update(int all, int yes) { _all += all; _yes += yes; }
-      double getCostInBits(std::ostream *dump = NULL) const
-      {
-	const double yesRatio = _yes / (double)_all;
-	const double yesCost = _yes * pCostInBits(yesRatio);
-	const int no = _all - _yes;
-	const double noRatio = no / (double)_all;
-	const double noCost = no * pCostInBits(noRatio);
-	const double totalCost = yesCost + noCost;
-	if (dump)
-	{
-	  (*dump)<<"  Yes count: "<<_yes<<", "<<(yesRatio*100)<<"%, bits: "
-	    	 <<yesCost<<std::endl
-	    	 <<"  No count: "<<no<<", "<<(noRatio*100)<<"%, bits: "
-                 <<noCost<<std::endl
-	    	 <<"  Total bits: "<<totalCost<<", bytes: "<<(totalCost/8)
-		 <<std::endl;
-	}
-	return totalCost;
-      }
-    };
-    Counter counter2;
-    Counter counter3;
-    Counter counterOthers;
-    for (auto const &kvp : saveAllCount)
-    {
-      const int length = kvp.first;
-      if (length == 1)
-      {
-	continue;
-      }
-      const int all = kvp.second;
-      const int yes = saveYesCount[length];
-      switch (length)
-      {
-      case 2:
-	counter2.update(all, yes);
-	break;
-      case 3:
-	counter3.update(all, yes);
-	break;
-      default:
-	counterOthers.update(all, yes);
-	break;
-      }
-    }
-    double costInBits = 0.0;
-    std::cerr<<">>> Length = 2"<<std::endl;
-    costInBits += counter2.getCostInBits(&std::cerr);
-    std::cerr<<">>> Length = 3"<<std::endl;
-    costInBits += counter3.getCostInBits(&std::cerr);
-    std::cerr<<">>> Length > 3"<<std::endl;
-    costInBits += counterOthers.getCostInBits(&std::cerr);
-    std::cerr<<">>> Total cost in bits: "<<costInBits
-	     <<", in bytes: "<<(costInBits/8)<<std::endl;
-    
     std::cerr<<"count\tbytes\tbits/\treason"<<std::endl
 	     <<indexCount<<'\t'<<(indexCost/8)<<'\t'<<(indexCost/indexCount)<<'\t'<<"Index"<<std::endl
 	     <<deleteCount<<'\t'<<(deleteCost/8)<<'\t'<<(deleteCost/deleteCount)<<'\t'<<"Delete"<<std::endl
-	     <<writeCount<<'\t'<<(writeCost/8)<<'\t'<<(writeCost/writeCount)<<'\t'<<"Write"<<std::endl;
+	     <<writeCount<<'\t'<<(writeCost/8)<<'\t'<<(writeCost/writeCount)<<'\t'<<"Write"<<std::endl
+	     <<"Delete ratio: "<<(deleteYesCount/(double)deleteCount)
+	     <<std::endl
+	     <<"Ideal delete cost in bytes: "<<(pCostInBits(deleteYesCount/(double)deleteCount)*deleteYesCount + pCostInBits((deleteCount-deleteYesCount)/(double)deleteCount)*(deleteCount-deleteYesCount))/8<<std::endl;
 
+    assert(currentlyAvailableToDelete <= 0);
+    double totalCost = 0.0;
+    for (DeleteInfo const &deleteInfo : allDeleteInfo)
+    {
+      const int available = deleteInfo.available - currentlyAvailableToDelete;
+      const int opportunities =
+	allDeleteInfo.size() - deleteInfo.opportunities;
+      const int numerator =
+	deleteInfo.deleteThis?available:(opportunities - available);
+      const double cost = pCostInBits(numerator/(double)opportunities);
+      totalCost += cost;
+      /*
+      std::cerr<<"• available="<<available
+	       <<", opportunities="<<opportunities
+	       <<", deleteThis="<<(deleteInfo.deleteThis?"YES":"no")
+	       <<", numerator="<<numerator
+	       <<", cost="<<cost
+	       <<", totalCost="<<totalCost
+	       <<std::endl;
+      */
+    }
+    std::cerr<<"Alt delete cost in bits: "<<totalCost
+	     <<", in bytes: "<<(totalCost/8)<<std::endl;
   }
   
   void copyTo(PossibleMru &possibleMru)

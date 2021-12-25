@@ -67,11 +67,8 @@ public:
  * entropy encoder.  The main program looks ahead in the file to decide which
  * strings are best to add or delete.
  *
- * If you add strings faster than you delete them, eventually this table will
- * get full, and we will automatically delete the least recently used strings.
- * See the comments for addToFront() for more details.
- *
- * You can configure the size of this list.  If you make it too small, you
+ * The main program constrols the max size of the list, by adding or deleting
+ * strings.  If this is is too small, you
  * limit the amount of compression you can get from this stage.  If you make
  * this too big you get diminishing returns.  Operations on this list, and
  * this corresponding list of frequencies used by the rANS step, are often
