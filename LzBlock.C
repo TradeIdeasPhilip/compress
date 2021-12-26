@@ -603,6 +603,10 @@ public:
 		     std::unordered_map< PString, int > &recentUses,
 		     std::vector< RansRange > &toEntropyEncoder)
   {
+    _indexCounter.reduceOld();
+    _writeStats.reduceOld();
+    _deleteStats.reduceOld();
+
     int indexCount = 0;
     double indexCost = 0.0;
     int deleteCount = 0;    
