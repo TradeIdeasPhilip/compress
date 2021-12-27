@@ -762,6 +762,8 @@ public:
     }
     */
 
+    //auto const saveOriginalNumerator = numerator;
+
     // Merge the histogram into bigger bins.  If we save this histogram in
     // the file, we won't be able to offer as much detail.  We'll group
     // the indexes into bins.  And we'll record the average frequency of
@@ -770,7 +772,7 @@ public:
       // Fibonocci seemed pretty close to what I wanted, and it was easy
       // to do.
       const int binSizes[] = { 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233,
-			       377, 610, 987, 1597, 2584, 4181, 6765, 10946};
+			       377, 610, 987, 1597, 2584, 4181, 6765, 10946 };
       /*
       const int binSizes[] = { 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8,
 			       16, 16, 16, 32, 32, 32, 64, 64, 64,
@@ -844,6 +846,78 @@ public:
 	       <<std::endl;
     }
     */
+
+    // This is a different way to divide the indicies into bins.
+    // We create N bins, with approximately the same number of items in each
+    // bin.
+    // The idea is that this summary might be easier to store in the file.
+    // Each bin is the same size, so we only have to store the divisions
+    // in the file.
+    //
+    // My results show that the results can be decent.  In practice the
+    // bins each have almost the same number of entries.  But it seems like
+    // there are a lot more special cases to think about.  And it would be
+    // hard to generate test cases.
+    {
+      std::cerr<<"Bin #\tIndex Count\tUse Count"<<std::endl;
+      double countRemaining = total;
+      std::vector< int > endIndicies;
+      int nextIndex = 0;
+      static const int BIN_COUNT = 18;
+      for (int binsRemaining = BIN_COUNT; binsRemaining >= 1; binsRemaining--)
+      {
+	const double expectedThisBin = countRemaining / binsRemaining;
+	double addedThisBin = 0.0;
+	int indiciesThisBin = 0;
+	do
+	{
+	  assert(nextIndex < numerator.size());
+	  addedThisBin += numerator[nextIndex];
+	  indiciesThisBin++;
+	  nextIndex++;
+	}
+	while ((addedThisBin < expectedThisBin)
+	       && (nextIndex < numerator.size()));
+	endIndicies.push_back(nextIndex);
+	std::cerr<<endIndicies.size()<<'\t'<<indiciesThisBin<<"\t\t"
+		 <<addedThisBin<<std::endl;
+	countRemaining -= addedThisBin;
+      }
+      assert(nextIndex == numerator.size());
+
+      int startIndex = 0;
+      for (const int endIndex : endIndicies)
+      {
+	const double mean =
+	  (total / (double)BIN_COUNT) / (endIndex - startIndex);
+	for (int index = startIndex; index < endIndex; index++)
+	{
+	  numerator[index] = mean;
+	}
+	startIndex = endIndex;
+      }
+    }
+
+    idealIndexCost = 0.0;
+    simplifiedIndexCost = 0.0;
+    for (IndexInfo const &indexInfo : allIndexInfo)
+    {
+      const double n = numerator[indexInfo.selected];
+      const double idealDenominator =
+	denominatorSoFar[std::min< size_t >(indexInfo.max,
+					    denominatorSoFar.size()-1)];
+      const double idealCost = pCostInBits(n / idealDenominator);
+      idealIndexCost += idealCost;
+      const double simplifiedCost =  pCostInBits(n / total);
+      simplifiedIndexCost += simplifiedCost;
+    }
+    std::cerr<<"Ideal 𝑎𝑙𝑡 binned index cost in bytes: "
+	     <<(idealIndexCost/8)
+	     <<std::endl;
+    std::cerr<<"Simplified 𝑎𝑙𝑡 binned index cost in bytes: "
+	     <<(simplifiedIndexCost/8)
+	     <<std::endl;
+        
   }
   
   void copyTo(PossibleMru &possibleMru)
