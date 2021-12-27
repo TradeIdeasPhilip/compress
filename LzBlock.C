@@ -24,18 +24,24 @@
 
 /* Recent thoughts and plans, 12/21/2021
  * 1)  The maximum length of the MRU list can be set on a per block basis.  We
- *     aim for 4096 entries, but if that fails we add more.  This seemd
- *     complicated back when we would rotate the list sometimes to keep an item
- *     from falling off the end, but that code was removed some time ago.
+ *     aim for 4096 entries, but if that fails we add more.  DONE!
  * 2)  Should the block header state the largest MRU index used in the block?
  *     Usually that will trim a lot of items, but the probability of those
- *     items was already low, so it might be a small improvement.
+ *     items was already low, so it might be a small improvement.  If we
+ *     store the probabilities in the header, then this is implied because
+ *     the items in question will all have a probability of exactly 0.
  * 3)  The probabilities of the various MRU items should *not* be dynamic.
  *     If we can describe the probabilities up front, in the header, suddenly
  *     the code gets *a lot* faster.  Updating the probabilities *each time*
  *     we write something to the entropy encoder makes things very slow.
  *     Just changing the size of the table, so the probability of any index
  *     above N goes to 0, is still fast.
+ * 3a) Initial testing shows that #3 is quite feasible.  Switching from
+ *     the current mechanism, where we keep a running total of how common
+ *     each index is, to computing everything in advance and adding a summary
+ *     to the file, will save a few percent in file size.  It's not huge, but
+ *     it's enough to cover for the extra header, so it's always an
+ *     improvement, even if only a small one.
  * 4)  How does the header describe the probabilities?  One option available
  *     is to say "use the probabilities we measured in the previous block."
  *     That might work pretty well most of the time.
@@ -139,7 +145,7 @@ void assertTrue(T const &value)
 
 template < class T >
 void assertFalse(T const &value)
-{ 
+{
   assert(!value);
 }
 
@@ -519,14 +525,7 @@ public:
   {
     Profiler::Update pu(profilers.possibleMru_findStrings);
     char const *lastPrint = NULL;
-    // TODO 4096+2048 is just a rough estimate which works with my test
-    // data.  We need a better way of dealing with this.  Anything bigger than
-    // 4096 is not guaranteed to work.  However, making this number too small
-    // will rob us of some potential compression in most files.  We probably
-    // need some smarter test, possibly trying a higher number, then trying
-    // again if there's a failure later in the algorithm.
-    // TODO 4096 should not be hard coded, even as part of a heuristic.  Notice
-    // FinalOrderMru::_maxSize.  This value can be changed.
+    // TODO 4096+2048 should be configurable.
     while((!remaining.empty()) && (recentUses.size() < 4096+2048))
     {
       char const *const newEntry = lastPrint;
@@ -615,17 +614,17 @@ public:
     int writeCount = 0;
     double writeCost = 0.0;
 
-    int currentlyAvailableToDelete = 0;
-    struct DeleteInfo
+    struct IndexInfo
     {
-      int available;
-      int opportunities;
-      bool deleteThis;
+      int16_t selected;
+      int16_t max;
     };
-    std::vector < DeleteInfo > allDeleteInfo;
-
+    std::vector< IndexInfo > allIndexInfo;
+    
     Profiler::Update pu(profilers.finalOrderMru_reportStrings);
     const auto saveIndex = [&](int index){
+      allIndexInfo.push_back({ .selected=(int16_t)index,
+	    .max=(int16_t)_strings.size()});
       const auto range = _indexCounter.getRange(index, _strings.size());
       toEntropyEncoder.push_back(range);
       _indexCounter.increment(index);
@@ -639,8 +638,6 @@ public:
       deleteCount++;
       deleteYesCount += value;
       deleteCost += range.idealCost();
-      allDeleteInfo.push_back({ .available= currentlyAvailableToDelete, .opportunities= (int)allDeleteInfo.size(), .deleteThis= value });
-      currentlyAvailableToDelete -= value;
     };
     const auto saveWrite = [&](int length, bool value){
       const auto range = _writeStats.getRange(length, value);
@@ -648,7 +645,6 @@ public:
       _writeStats.increment(length, value);
       writeCount++;
       writeCost += range.idealCost();
-      currentlyAvailableToDelete += value;
     };
     char const *savedOlder = NULL;
     char const *savedNewer = NULL;
@@ -712,29 +708,142 @@ public:
 	     <<std::endl
 	     <<"Ideal delete cost in bytes: "<<(pCostInBits(deleteYesCount/(double)deleteCount)*deleteYesCount + pCostInBits((deleteCount-deleteYesCount)/(double)deleteCount)*(deleteCount-deleteYesCount))/8<<std::endl;
 
-    assert(currentlyAvailableToDelete <= 0);
-    double totalCost = 0.0;
-    for (DeleteInfo const &deleteInfo : allDeleteInfo)
+    std::vector< double > numerator;
+    for (IndexInfo const &indexInfo : allIndexInfo)
     {
-      const int available = deleteInfo.available - currentlyAvailableToDelete;
-      const int opportunities =
-	allDeleteInfo.size() - deleteInfo.opportunities;
-      const int numerator =
-	deleteInfo.deleteThis?available:(opportunities - available);
-      const double cost = pCostInBits(numerator/(double)opportunities);
-      totalCost += cost;
-      /*
-      std::cerr<<"• available="<<available
-	       <<", opportunities="<<opportunities
-	       <<", deleteThis="<<(deleteInfo.deleteThis?"YES":"no")
-	       <<", numerator="<<numerator
-	       <<", cost="<<cost
-	       <<", totalCost="<<totalCost
-	       <<std::endl;
-      */
+      const size_t index = indexInfo.selected;
+      if (index >= numerator.size())
+      {
+	numerator.resize(index + 1);
+      }
+      numerator[index]++;
     }
-    std::cerr<<"Alt delete cost in bits: "<<totalCost
-	     <<", in bytes: "<<(totalCost/8)<<std::endl;
+    int total = 0;
+    std::vector< int > denominatorSoFar;
+    for (const int n : numerator)
+    {
+      total += n;
+      denominatorSoFar.push_back(total);
+    }
+    double idealIndexCost = 0.0;
+    double simplifiedIndexCost = 0.0;
+    for (IndexInfo const &indexInfo : allIndexInfo)
+    {
+      const double n = numerator[indexInfo.selected];
+      const double idealDenominator =
+	denominatorSoFar[std::min< size_t >(indexInfo.max,
+					    denominatorSoFar.size()-1)];
+      const double idealCost = pCostInBits(n / idealDenominator);
+      idealIndexCost += idealCost;
+      const double simplifiedCost =  pCostInBits(n / total);
+      simplifiedIndexCost += simplifiedCost;
+    }
+
+    // This look good.  Typically saving 300 to 2000 bytes per block.  So
+    // there is plently of space for a reasonable sized decription of the
+    // probabilities.
+    std::cerr<<"Ideal index cost in bytes: "<<(idealIndexCost/8)<<std::endl;
+
+    std::cerr<<"Simplified index cost in bytes: "<<(simplifiedIndexCost/8)
+	     <<std::endl;
+    std::cerr<<"MRU length: "<<numerator.size()<<std::endl;
+    /*
+    std::cerr<<"index\tcount\tratio\t\tcost/\tt_cost"<<std::endl;
+    for (size_t i = 0; i < numerator.size(); i++)
+    {
+      const double n = numerator[i];
+      const double ratio = n/total;
+      // costPer is a slight overestimate.  It corresponds to simplifiedCost
+      // above.
+      const double costPer = pCostInBits(ratio);
+      const double totalCost = n?(n*costPer):0.0;
+      std::cerr<<i<<'\t'<<n<<'\t'<<ratio<<'\t'<<costPer<<'\t'<<totalCost
+	       <<std::endl;
+    }
+    */
+
+    // Merge the histogram into bigger bins.  If we save this histogram in
+    // the file, we won't be able to offer as much detail.  We'll group
+    // the indexes into bins.  And we'll record the average frequency of
+    // each bin.
+    { // Bin sizes can be almost anything, as long as both sides agree.
+      // Fibonocci seemed pretty close to what I wanted, and it was easy
+      // to do.
+      const int binSizes[] = { 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233,
+			       377, 610, 987, 1597, 2584, 4181, 6765, 10946};
+      /*
+      const int binSizes[] = { 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8,
+			       16, 16, 16, 32, 32, 32, 64, 64, 64,
+			       128, 128, 256, 256, 512, 512, 1024, 1024,
+			       2048, 2048, 4098, 4098, 8192, 8192 };
+      */
+      size_t start = 0;
+      std::cerr<<"start\tbin sz\ttotal"<<std::endl;
+      for (const int binSize : binSizes)
+      {
+	if (start >= numerator.size())
+	{
+	  break;
+	}
+	const size_t end = std::min(numerator.size(), start + binSize);
+	double total = 0.0;
+	for (int i = start; i < end; i++)
+	{
+	  total += numerator[i];
+	}
+	const double mean = total / (end - start);
+	for (int i = start; i < end; i++)
+        {
+          numerator[i] = mean;
+        }
+	std::cerr<<start<<'\t'<<binSize<<'\t'<<total<<std::endl;
+	start = end;
+      }
+    }
+
+    // Rerun the same stats, but with the new numerators.
+    //
+    // I'd feel a little better if these numbers were not so precise.
+    // When we store them in the file we are likely to use a byte, not a
+    // double.  However, A quick survey of the test data suggests that
+    // will not be an issue.  Even if we have full precision -- We record
+    // the exact number of entries in each bin -- We're looking at about 25
+    // bytes to store the probabilities.  So even in the worst case, this
+    // change will still be an improvement.
+    idealIndexCost = 0.0;
+    simplifiedIndexCost = 0.0;
+    for (IndexInfo const &indexInfo : allIndexInfo)
+    {
+      const double n = numerator[indexInfo.selected];
+      const double idealDenominator =
+	denominatorSoFar[std::min< size_t >(indexInfo.max,
+					    denominatorSoFar.size()-1)];
+      const double idealCost = pCostInBits(n / idealDenominator);
+      idealIndexCost += idealCost;
+      const double simplifiedCost =  pCostInBits(n / total);
+      simplifiedIndexCost += simplifiedCost;
+    }
+    std::cerr<<"Ideal binned index cost in bytes: "
+	     <<(idealIndexCost/8)
+	     <<std::endl;
+    std::cerr<<"Simplified binned index cost in bytes: "
+	     <<(simplifiedIndexCost/8)
+	     <<std::endl;
+    //std::cerr<<"MRU length: "<<numerator.size()<<std::endl;
+    /*
+    std::cerr<<"index\tcount\tratio\t\tcost/\tt_cost"<<std::endl;
+    for (size_t i = 0; i < numerator.size(); i++)
+    {
+      const double n = numerator[i];
+      const double ratio = n/total;
+      // costPer is a slight overestimate.  It corresponds to simplifiedCost
+      // above.
+      const double costPer = pCostInBits(ratio);
+      const double totalCost = n?(n*costPer):0.0;
+      std::cerr<<i<<'\t'<<n<<'\t'<<ratio<<'\t'<<costPer<<'\t'<<totalCost
+	       <<std::endl;
+    }
+    */
   }
   
   void copyTo(PossibleMru &possibleMru)
