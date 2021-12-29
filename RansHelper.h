@@ -1,4 +1,4 @@
-#ifndef __RansHelper_h_
+0#ifndef __RansHelper_h_
 #define __RansHelper_h_
 
 #include <assert.h>
@@ -40,7 +40,7 @@ public:
   // We always use this when we call the rANS library.
   static const uint32_t SCALE_BITS = 31;
 
-  // This is the denominator any time we cal the rANS library.
+  // This is the denominator any time we call the rANS library.
   static const uint32_t SCALE_END = (1u<<SCALE_BITS);
 
   // (n / d) ≈ (rescale(n, d) / SCALE_END)
