@@ -1,4 +1,4 @@
-0#ifndef __RansHelper_h_
+#ifndef __RansHelper_h_
 #define __RansHelper_h_
 
 #include <assert.h>

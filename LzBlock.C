@@ -50,14 +50,56 @@
  *     probabilities efficiently.  We do not want the header to contain a 32
  *     bit number for each of the 1024ish entries in the MRU.  In the past
  *     we've tried using a series of line segments to estimate a curve like
- *     this.
- * 6)  Usually the first few entries in the MRU table are the biggest and
- *     would gain the most from more precision.  And they often form strange
- *     curves that aren't nearly as smooth as the rest.  Maybe the header
- *     includes an 8 bit number specifying the probability of each of the
- *     first few entries.  This might be done all the time, and we choose
- *     between #4 and #5 for the rest of the entries on a block by block
- *     basis. */
+ *     this. */
+
+/* Adding the recycle bin to the back of the MRU helps, but it makes other
+ * parts of the code less helpful.  In particular, I tested code that would
+ * look at the length of the MRU list before computing the probabilities of
+ * each MRU index.  Maybe there is a 1% chance of using index 500, but there
+ * are currently only 400 entries in the MRU.  So I should reassign the 1%
+ * from this and all of the other impossible indices.  My original tests
+ * showed that this improved the compression noticeably.  However, now that
+ * we are using the recycle bin, that trick doesn't help much any more.
+ * The code could still cut off items sometimes, but they would be very
+ * low probability items, so I didn't even bother to write that code.
+ *
+ * I'm thinking that there is still a good way to get the benefit from
+ * the current size of the MRU list.  My proposed algorithm goes like this:
+ * 1) When we reset the MRU, we track which items were recycled.
+ * 2) We keep track of the division between the recycle section and the
+ *    first part of the MRU list.
+ * 3) When the code uses an item from the recycle bin, we account for it
+ *    separately.  It doesn't matter what the specific index is, or what
+ *    bin that index normally points to.  We keep count of the number of
+ *    items removed from the recycler in a new bin.
+ * 4) When an item is removed from the recycler, it gets moved to the normal
+ *    part of of the MRU.  If the program uses one of those strings a second
+ *    time, then we record the index number like normal.  I.e. we are keeping
+ *    count of the number of items from the recycler that were used, not the
+ *    number of times they were used.
+ * 5) The list of statistics has one extra bin.  That points to the recycled
+ *    items.  Just like any other bin, we know the chance of picking this
+ *    bin.  One call to the rANS encoder or decoder will choose between this
+ *    new bin and all of the other bins.
+ * 6) Within this bin we use the same logic as the other bins.  I know the
+ *    size of the bin and we assume any item in the bin has the same
+ *    probability as any other item.
+ * 7) When I go to encode or decode a bin number, and I set the probabilities,
+ *    I start by asking what is the current size of the MRU list less the 
+ *    current size of the recycle bin.  Unless the recycle bin is empty, it
+ *    always gets the probability listed in the block header.  The remaining
+ *    bins might get pruned because of the size we just computed.
+ *
+ * I should treat the single bytes in the same way as the recycled
+ * items.  They are both required but rarely used.  It seems like a trivial
+ * changed to apply the alorithm to both.  And it could help a lot, especially
+ * when the MRU is very small, like at the beginning of every block!
+ *
+ * These changes are consistent with the previous change.  I can quickly
+ * update the probabilities each time I change the size of the MRU.  That
+ * is totally different from using a running total to compute the
+ * probabilities.  The latter was slow to compute.
+ */
 
 /* This was copied from LzStream.C
  *
@@ -567,7 +609,6 @@ class FinalOrderMru
 {
 private:
   MruBase< PString > _strings;
-  SymbolCounter _indexCounter;
   WriteStats _writeStats;
   BoolCounter _deleteStats;
 
@@ -598,48 +639,111 @@ public:
       _strings.addToFront(PString((char)i));
   }
 
-  void reportStrings(char const *start, std::vector< WriteInfo > &toWrite,
+  void reportStrings(char const *start,
+		     std::vector< WriteInfo > const &toWrite,
 		     std::unordered_map< PString, int > &recentUses,
 		     std::vector< RansRange > &toEntropyEncoder)
   {
-    _indexCounter.reduceOld();
     _writeStats.reduceOld();
     _deleteStats.reduceOld();
 
-    int indexCount = 0;
-    double indexCost = 0.0;
     int deleteCount = 0;    
     double deleteCost = 0.0;
     int deleteYesCount = 0;
     int writeCount = 0;
     double writeCost = 0.0;
-
-    struct IndexInfo
-    {
-      int16_t selected;
-      int16_t max;
-    };
-    std::vector< IndexInfo > allIndexInfo;
     
+    // This is the data that will eventuall go to toEntropyEncoder.
+    // We are recording new entries as they happen.
+    // Some of these we immediately know the range, so we store that.
+    // But we don't encode the MRU indicies until the end.
+    // After we've accumulated all the indicies, then we compute the statistics
+    // then we use the statistics to create the ranges.
+    struct ToEncode
+    {
+      RansRange range;
+      bool encodeIndex;
+      uint16_t index;
+      uint16_t maxIndex;
+      ToEncode(RansRange const &range) :
+	range(range), encodeIndex(false),
+	index((uint16_t)-1), maxIndex((uint16_t)-1) { }
+      ToEncode(uint16_t index, uint16_t maxIndex) :
+	range(NULL),
+	encodeIndex(true),
+	index(index),
+	maxIndex(maxIndex) { }
+      ToEncode() : ToEncode(-1, -1) {}
+    };
+    std::vector< ToEncode > allToEncode;
+    
+    // Merge the histogram into bigger bins.  If we save this histogram in
+    // the file, we won't be able to offer as much detail.  We'll group
+    // the indexes into bins.  And we'll record the average frequency of
+    // each bin.
+    //
+    // Bin sizes can be almost anything, as long as both sides agree.
+    // Fibonocci seemed pretty close to what I wanted, and it was easy
+    // to do.
+    //
+    // Some experimenting suggests that I'm being too precise on the front
+    // end.  The first one is often much different from the rest.  But none
+    // of the indicies has a huge number of entries, so giving a lot of weight
+    // to any single index does not make that much sense.
+    const int binSizes[] = { 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233,
+			     377, 610, 987, 1597, 2584, 4181, 6765, 10946 };
+    struct BinInfo
+    {
+      int begin;
+      int end;
+      int count;
+      int previousCount;
+      int size() const { return end-begin; }
+      bool valid() const { return begin >= 0; }
+      BinInfo() : begin(-1), end(-1), count(0), previousCount(0) { }
+      BinInfo(int begin, int end) :
+	begin(begin), end(end), count(0), previousCount(0) { }
+    };
+    std::map< int, BinInfo > firstIndexToBin;
+    {
+      int indexStart = 0;
+      for (int size : binSizes)
+      {
+	const int nextIndexStart = indexStart + size;
+	const int bin = firstIndexToBin.size();
+	firstIndexToBin[indexStart] = BinInfo(indexStart, nextIndexStart);
+	indexStart = nextIndexStart;
+      }
+      // If you try to read off the end of the table you get -1.
+      firstIndexToBin[indexStart];
+    }
+    const auto indexToBin = [&firstIndexToBin](int index) -> BinInfo * {
+      auto it = firstIndexToBin.upper_bound(index);
+      it--;
+      if (it == firstIndexToBin.end())
+      { // Not found.  Presumably a negative number for the input!
+	return &firstIndexToBin.rbegin()->second;
+      }
+      return &it->second;
+    };
+    
+    std::vector< int > numerator;
+
     Profiler::Update pu(profilers.finalOrderMru_reportStrings);
     const auto saveIndex = [&](int index){
-      allIndexInfo.push_back({ .selected=(int16_t)index,
-	    .max=(int16_t)_strings.size()});
-      const auto range = _indexCounter.getRange(index, _strings.size());
-      toEntropyEncoder.push_back(range);
-      _indexCounter.increment(index);
-      indexCount++;
-      indexCost += range.idealCost();
+     allToEncode.emplace_back(index, (int16_t)_strings.size());
+      BinInfo *const binInfo = indexToBin(index);
+      binInfo->count++;
     };
     const auto saveDelete = [&](bool value) {
       const auto range = _deleteStats.getRange(value);
-      toEntropyEncoder.push_back(range);
+      allToEncode.emplace_back(range);
       _deleteStats.increment(value);
       deleteCount++;
       deleteYesCount += value;
       deleteCost += range.idealCost();
     };
-    const auto saveWrite = [&](int length, bool value){
+    const auto saveWrite = [&](int length, bool value) {
       const auto range = _writeStats.getRange(length, value);
       toEntropyEncoder.push_back(range);
       _writeStats.increment(length, value);
@@ -687,236 +791,39 @@ public:
 	    saveWrite(string.length(), false);
       }
     }
-
-    /*
-    std::cerr<<"length\tyes\tall\t%"<<std::endl;
-    for (auto const &kvp : saveAllCount)
-    {
-      const int length = kvp.first;
-      const int allCount = kvp.second;
-      const int yesCount = saveYesCount[length];
-      std::cerr<<length<<'\t'<<yesCount<<'\t'<<allCount<<'\t'
-	       <<(yesCount * 100.0 / allCount)<<std::endl;
-    }
-    */
-
+    
     std::cerr<<"count\tbytes\tbits/\treason"<<std::endl
-	     <<indexCount<<'\t'<<(indexCost/8)<<'\t'<<(indexCost/indexCount)<<'\t'<<"Index"<<std::endl
 	     <<deleteCount<<'\t'<<(deleteCost/8)<<'\t'<<(deleteCost/deleteCount)<<'\t'<<"Delete"<<std::endl
 	     <<writeCount<<'\t'<<(writeCost/8)<<'\t'<<(writeCost/writeCount)<<'\t'<<"Write"<<std::endl
 	     <<"Delete ratio: "<<(deleteYesCount/(double)deleteCount)
 	     <<std::endl
 	     <<"Ideal delete cost in bytes: "<<(pCostInBits(deleteYesCount/(double)deleteCount)*deleteYesCount + pCostInBits((deleteCount-deleteYesCount)/(double)deleteCount)*(deleteCount-deleteYesCount))/8<<std::endl;
-
-    std::vector< double > numerator;
-    for (IndexInfo const &indexInfo : allIndexInfo)
-    {
-      const size_t index = indexInfo.selected;
-      if (index >= numerator.size())
-      {
-	numerator.resize(index + 1);
-      }
-      numerator[index]++;
-    }
+    
     int total = 0;
-    std::vector< int > denominatorSoFar;
-    for (const int n : numerator)
+    for (auto &kvp : firstIndexToBin)
     {
-      total += n;
-      denominatorSoFar.push_back(total);
+      BinInfo &binInfo = kvp.second;
+      binInfo.previousCount = total;
+      total += binInfo.count;
     }
-    double idealIndexCost = 0.0;
-    double simplifiedIndexCost = 0.0;
-    for (IndexInfo const &indexInfo : allIndexInfo)
+    
+    for (ToEncode const &toEncode : allToEncode)
     {
-      const double n = numerator[indexInfo.selected];
-      const double idealDenominator =
-	denominatorSoFar[std::min< size_t >(indexInfo.max,
-					    denominatorSoFar.size()-1)];
-      const double idealCost = pCostInBits(n / idealDenominator);
-      idealIndexCost += idealCost;
-      const double simplifiedCost =  pCostInBits(n / total);
-      simplifiedIndexCost += simplifiedCost;
-    }
-
-    // This look good.  Typically saving 300 to 2000 bytes per block.  So
-    // there is plently of space for a reasonable sized decription of the
-    // probabilities.
-    std::cerr<<"Ideal index cost in bytes: "<<(idealIndexCost/8)<<std::endl;
-
-    std::cerr<<"Simplified index cost in bytes: "<<(simplifiedIndexCost/8)
-	     <<std::endl;
-    std::cerr<<"MRU length: "<<numerator.size()<<std::endl;
-    /*
-    std::cerr<<"index\tcount\tratio\t\tcost/\tt_cost"<<std::endl;
-    for (size_t i = 0; i < numerator.size(); i++)
-    {
-      const double n = numerator[i];
-      const double ratio = n/total;
-      // costPer is a slight overestimate.  It corresponds to simplifiedCost
-      // above.
-      const double costPer = pCostInBits(ratio);
-      const double totalCost = n?(n*costPer):0.0;
-      std::cerr<<i<<'\t'<<n<<'\t'<<ratio<<'\t'<<costPer<<'\t'<<totalCost
-	       <<std::endl;
-    }
-    */
-
-    //auto const saveOriginalNumerator = numerator;
-
-    // Merge the histogram into bigger bins.  If we save this histogram in
-    // the file, we won't be able to offer as much detail.  We'll group
-    // the indexes into bins.  And we'll record the average frequency of
-    // each bin.
-    { // Bin sizes can be almost anything, as long as both sides agree.
-      // Fibonocci seemed pretty close to what I wanted, and it was easy
-      // to do.
-      const int binSizes[] = { 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233,
-			       377, 610, 987, 1597, 2584, 4181, 6765, 10946 };
-      /*
-      const int binSizes[] = { 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8,
-			       16, 16, 16, 32, 32, 32, 64, 64, 64,
-			       128, 128, 256, 256, 512, 512, 1024, 1024,
-			       2048, 2048, 4098, 4098, 8192, 8192 };
-      */
-      size_t start = 0;
-      std::cerr<<"start\tbin sz\ttotal"<<std::endl;
-      for (const int binSize : binSizes)
+      if (toEncode.encodeIndex)
+      { // TODO look at the .max property to make this a little tighter.
+	BinInfo const *binInfo = indexToBin(toEncode.index);
+	toEntropyEncoder.emplace_back(binInfo->previousCount,
+				      binInfo->count,
+				      total);
+	toEntropyEncoder.emplace_back(toEncode.index - binInfo->begin,
+				      1,
+				      binInfo->size());
+      }
+      else
       {
-	if (start >= numerator.size())
-	{
-	  break;
-	}
-	const size_t end = std::min(numerator.size(), start + binSize);
-	double total = 0.0;
-	for (int i = start; i < end; i++)
-	{
-	  total += numerator[i];
-	}
-	const double mean = total / (end - start);
-	for (int i = start; i < end; i++)
-        {
-          numerator[i] = mean;
-        }
-	std::cerr<<start<<'\t'<<binSize<<'\t'<<total<<std::endl;
-	start = end;
+	toEntropyEncoder.emplace_back(toEncode.range);
       }
     }
-
-    // Rerun the same stats, but with the new numerators.
-    //
-    // I'd feel a little better if these numbers were not so precise.
-    // When we store them in the file we are likely to use a byte, not a
-    // double.  However, A quick survey of the test data suggests that
-    // will not be an issue.  Even if we have full precision -- We record
-    // the exact number of entries in each bin -- We're looking at about 25
-    // bytes to store the probabilities.  So even in the worst case, this
-    // change will still be an improvement.
-    idealIndexCost = 0.0;
-    simplifiedIndexCost = 0.0;
-    for (IndexInfo const &indexInfo : allIndexInfo)
-    {
-      const double n = numerator[indexInfo.selected];
-      const double idealDenominator =
-	denominatorSoFar[std::min< size_t >(indexInfo.max,
-					    denominatorSoFar.size()-1)];
-      const double idealCost = pCostInBits(n / idealDenominator);
-      idealIndexCost += idealCost;
-      const double simplifiedCost =  pCostInBits(n / total);
-      simplifiedIndexCost += simplifiedCost;
-    }
-    std::cerr<<"Ideal binned index cost in bytes: "
-	     <<(idealIndexCost/8)
-	     <<std::endl;
-    std::cerr<<"Simplified binned index cost in bytes: "
-	     <<(simplifiedIndexCost/8)
-	     <<std::endl;
-    //std::cerr<<"MRU length: "<<numerator.size()<<std::endl;
-    /*
-    std::cerr<<"index\tcount\tratio\t\tcost/\tt_cost"<<std::endl;
-    for (size_t i = 0; i < numerator.size(); i++)
-    {
-      const double n = numerator[i];
-      const double ratio = n/total;
-      // costPer is a slight overestimate.  It corresponds to simplifiedCost
-      // above.
-      const double costPer = pCostInBits(ratio);
-      const double totalCost = n?(n*costPer):0.0;
-      std::cerr<<i<<'\t'<<n<<'\t'<<ratio<<'\t'<<costPer<<'\t'<<totalCost
-	       <<std::endl;
-    }
-    */
-
-    // This is a different way to divide the indicies into bins.
-    // We create N bins, with approximately the same number of items in each
-    // bin.
-    // The idea is that this summary might be easier to store in the file.
-    // Each bin is the same size, so we only have to store the divisions
-    // in the file.
-    //
-    // My results show that the results can be decent.  In practice the
-    // bins each have almost the same number of entries.  But it seems like
-    // there are a lot more special cases to think about.  And it would be
-    // hard to generate test cases.
-    {
-      std::cerr<<"Bin #\tIndex Count\tUse Count"<<std::endl;
-      double countRemaining = total;
-      std::vector< int > endIndicies;
-      int nextIndex = 0;
-      static const int BIN_COUNT = 18;
-      for (int binsRemaining = BIN_COUNT; binsRemaining >= 1; binsRemaining--)
-      {
-	const double expectedThisBin = countRemaining / binsRemaining;
-	double addedThisBin = 0.0;
-	int indiciesThisBin = 0;
-	do
-	{
-	  assert(nextIndex < numerator.size());
-	  addedThisBin += numerator[nextIndex];
-	  indiciesThisBin++;
-	  nextIndex++;
-	}
-	while ((addedThisBin < expectedThisBin)
-	       && (nextIndex < numerator.size()));
-	endIndicies.push_back(nextIndex);
-	std::cerr<<endIndicies.size()<<'\t'<<indiciesThisBin<<"\t\t"
-		 <<addedThisBin<<std::endl;
-	countRemaining -= addedThisBin;
-      }
-      assert(nextIndex == numerator.size());
-
-      int startIndex = 0;
-      for (const int endIndex : endIndicies)
-      {
-	const double mean =
-	  (total / (double)BIN_COUNT) / (endIndex - startIndex);
-	for (int index = startIndex; index < endIndex; index++)
-	{
-	  numerator[index] = mean;
-	}
-	startIndex = endIndex;
-      }
-    }
-
-    idealIndexCost = 0.0;
-    simplifiedIndexCost = 0.0;
-    for (IndexInfo const &indexInfo : allIndexInfo)
-    {
-      const double n = numerator[indexInfo.selected];
-      const double idealDenominator =
-	denominatorSoFar[std::min< size_t >(indexInfo.max,
-					    denominatorSoFar.size()-1)];
-      const double idealCost = pCostInBits(n / idealDenominator);
-      idealIndexCost += idealCost;
-      const double simplifiedCost =  pCostInBits(n / total);
-      simplifiedIndexCost += simplifiedCost;
-    }
-    std::cerr<<"Ideal 𝑎𝑙𝑡 binned index cost in bytes: "
-	     <<(idealIndexCost/8)
-	     <<std::endl;
-    std::cerr<<"Simplified 𝑎𝑙𝑡 binned index cost in bytes: "
-	     <<(simplifiedIndexCost/8)
-	     <<std::endl;
         
   }
   
