@@ -94,6 +94,8 @@
  * items.  They are both required but rarely used.  It seems like a trivial
  * changed to apply the alorithm to both.  And it could help a lot, especially
  * when the MRU is very small, like at the beginning of every block!
+ * (On closer inspection this is more or less required.  The recycled items
+ * are moved *before* the single byte / undeletable items.)
  *
  * These changes are consistent with the previous change.  I can quickly
  * update the probabilities each time I change the size of the MRU.  That
@@ -615,12 +617,13 @@ private:
   // Move the given item to the front of the list.  Return the index of the
   // item before we moved it.  0 is the front of the list.  Therefore, if you
   // call this twice in a row on the same input, the second call will always
-  // return 0.  Precondition:  The input must already be in the list.
-  int find(PString const &toFind)
+  // return (Group::MAIN, 0).  Precondition:  The input must already be in the
+  // list.
+  FoundAt find(PString const &toFind)
   {
     Profiler::Update pu(profilers.finalOrderMru_find);
-    const size_t result = _strings.findAndPromote(toFind);
-    assert(result != MruBase< PString >::NOT_FOUND);
+    const FoundAt result = _strings.findAndPromote(toFind);
+    assert(result.found());
     return result;
   }
 
@@ -662,18 +665,17 @@ public:
     struct ToEncode
     {
       RansRange range;
-      bool encodeIndex;
-      uint16_t index;
+      FoundAt foundAt;
       uint16_t maxIndex;
+      bool encodeIndex;
       ToEncode(RansRange const &range) :
-	range(range), encodeIndex(false),
-	index((uint16_t)-1), maxIndex((uint16_t)-1) { }
-      ToEncode(uint16_t index, uint16_t maxIndex) :
+	range(range), maxIndex((uint16_t)-1), encodeIndex(false) { }
+      ToEncode(FoundAt foundAt, uint16_t maxIndex) :
 	range(NULL),
-	encodeIndex(true),
-	index(index),
-	maxIndex(maxIndex) { }
-      ToEncode() : ToEncode(-1, -1) {}
+	foundAt(foundAt),
+	maxIndex(maxIndex),
+	encodeIndex(true) { }
+      ToEncode() : range(NULL), maxIndex(-1), encodeIndex(true) {}
     };
     std::vector< ToEncode > allToEncode;
     
@@ -705,6 +707,7 @@ public:
 	begin(begin), end(end), count(0), previousCount(0) { }
     };
     std::map< int, BinInfo > firstIndexToBin;
+    BinInfo lowPriority(0, _strings.size());
     {
       int indexStart = 0;
       for (int size : binSizes)
@@ -717,26 +720,37 @@ public:
       // If you try to read off the end of the table you get -1.
       firstIndexToBin[indexStart];
     }
-    const auto indexToBin = [&firstIndexToBin](int index) -> BinInfo * {
-      auto it = firstIndexToBin.upper_bound(index);
-      it--;
-      if (it == firstIndexToBin.end())
-      { // Not found.  Presumably a negative number for the input!
-	return &firstIndexToBin.rbegin()->second;
+    const auto indexToBin = [&](FoundAt foundAt) -> BinInfo * {
+      switch (foundAt.group)
+      {
+      case Group::MAIN:
+      {
+	auto it = firstIndexToBin.upper_bound(foundAt.index);
+	it--;
+	if ((it == firstIndexToBin.end()) || (!it->second.valid()))
+	{ // Not found.
+	  return NULL;
+	}
+	return &it->second;
       }
-      return &it->second;
+      case Group::RECYCLED:
+        return &lowPriority;
+      default:
+        return NULL;
+      }
     };
     
     std::vector< int > numerator;
 
     Profiler::Update pu(profilers.finalOrderMru_reportStrings);
-    const auto saveIndex = [&](int index){
-     allToEncode.emplace_back(index, (int16_t)_strings.size());
-      BinInfo *const binInfo = indexToBin(index);
+    const auto saveIndex = [&](FoundAt foundAt){
+      allToEncode.emplace_back(foundAt, (int16_t)_strings.size());
+      BinInfo *const binInfo = indexToBin(foundAt);
       binInfo->count++;
     };
     const auto saveDelete = [&](bool value) {
       const auto range = _deleteStats.getRange(value);
+      assert(range.valid());
       allToEncode.emplace_back(range);
       _deleteStats.increment(value);
       deleteCount++;
@@ -745,7 +759,8 @@ public:
     };
     const auto saveWrite = [&](int length, bool value) {
       const auto range = _writeStats.getRange(length, value);
-      toEntropyEncoder.push_back(range);
+      assert(range.valid());
+      allToEncode.emplace_back(range);
       _writeStats.increment(length, value);
       writeCount++;
       writeCost += range.idealCost();
@@ -799,7 +814,7 @@ public:
 	     <<std::endl
 	     <<"Ideal delete cost in bytes: "<<(pCostInBits(deleteYesCount/(double)deleteCount)*deleteYesCount + pCostInBits((deleteCount-deleteYesCount)/(double)deleteCount)*(deleteCount-deleteYesCount))/8<<std::endl;
     
-    int total = 0;
+    int total = lowPriority.count;
     for (auto &kvp : firstIndexToBin)
     {
       BinInfo &binInfo = kvp.second;
@@ -810,14 +825,16 @@ public:
     for (ToEncode const &toEncode : allToEncode)
     {
       if (toEncode.encodeIndex)
-      { // TODO look at the .max property to make this a little tighter.
-	BinInfo const *binInfo = indexToBin(toEncode.index);
+      { // TODO look at the toEncode.maxIndex to make this a little tighter.
+	BinInfo const *binInfo = indexToBin(toEncode.foundAt);
 	toEntropyEncoder.emplace_back(binInfo->previousCount,
 				      binInfo->count,
 				      total);
-	toEntropyEncoder.emplace_back(toEncode.index - binInfo->begin,
+	assert(toEntropyEncoder.rbegin()->valid());
+	toEntropyEncoder.emplace_back(toEncode.foundAt.index - binInfo->begin,
 				      1,
 				      binInfo->size());
+	assert(toEntropyEncoder.rbegin()->valid());
       }
       else
       {

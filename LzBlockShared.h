@@ -33,6 +33,16 @@ public:
   }
 };
 
+  enum class Group { NOWHERE, MAIN, RECYCLED };
+  struct FoundAt
+  {
+    Group group;
+    uint32_t index;
+    FoundAt() : group(Group::NOWHERE), index(0) { }
+    FoundAt(Group group, uint32_t index) : group(group), index(index) { }
+    bool found() const { return group != Group::NOWHERE; }
+  };
+
 /* MruBase encapsulates a lot of the magic that is specific to this compression
  * format.  At its heart this is a list of strings.  They can be indexed from
  * 0, like an array or vector.  In fact, getAll() shows you a copy of the
@@ -82,7 +92,13 @@ class MruBase
 private:
   const size_t _maxRecycle;
   size_t _size;
+  size_t _lowPriorityCount;
   std::vector< T > _items;
+
+  bool isLowPriority(size_t index) const
+  {
+    return index + _lowPriorityCount < _size;
+  }
 
   // Invariant:  This table always contains all 256 one byte strings.  They
   // can never be deleted.  Unfortunately we need a little help from outside
@@ -106,6 +122,10 @@ private:
   { // This should never fail, even with a bad input file.  We tell rANS how
     // big a number we expect, based on the current size() of this table.
     assert(i < _size);
+    if (isLowPriority(i))
+    {
+      _lowPriorityCount--;
+    }
     std::rotate(_items.begin(), _items.begin() + i, _items.begin() + i + 1);
   }
 
@@ -128,7 +148,7 @@ public:
   // with other interesting strings, as long as the encoder and decoder start
   // with the same lists.
   MruBase(size_t maxRecycle) :
-    _maxRecycle(maxRecycle), _size(0) { }
+    _maxRecycle(maxRecycle), _size(0), _lowPriorityCount(256) { }
 
   // The number of items currently in the list.
   // Should be >= 256.
@@ -141,18 +161,25 @@ public:
   // compressed file.  This will also move the string to the front of the list,
   // index 0.  If you call findAndPromote() twice in a row on the same string,
   // the second call will always return 0.
-  //
-  // NOT_FOUND means that the string you asked for wasn't in the table.
-  static const size_t NOT_FOUND = (size_t)-1;
-  size_t findAndPromote(T const &item)
+  FoundAt findAndPromote(T const &item)
   {
+    FoundAt result;
     for (size_t i = 0; i < _size; i++)
       if (equal(item, _items[i]))
       {
+	const size_t lowPriorityStart = _size - _lowPriorityCount;
+	if (i >= lowPriorityStart)
+	{
+	  result = FoundAt(Group::RECYCLED, i - lowPriorityStart);
+	}
+	else
+	{
+	  result = FoundAt(Group::MAIN, i);
+	}
 	promote(i);
-	return i;
+	break;
       }
-    return NOT_FOUND;
+    return result;
   }
 
   // This is the item we just found with findAndPromote().  The encoder
@@ -334,6 +361,11 @@ public:
     // Replace the old list with the new list.  Empty the recyle bin.
     _items = std::move(newList);
     _size = _items.size();
+
+    // Everything that we save from the previous block is just a guess.
+    // The probability of grabbing one of these items is lower than the
+    // items that we explicitly add to this list.
+    _lowPriorityCount = _size;
   }
   
   // The entire internal state.  getAll().begin() is the front of the list.
