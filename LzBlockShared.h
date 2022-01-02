@@ -97,7 +97,7 @@ private:
 
   bool isLowPriority(size_t index) const
   {
-    return index + _lowPriorityCount < _size;
+    return index + _lowPriorityCount >= _size;
   }
 
   // Invariant:  This table always contains all 256 one byte strings.  They
@@ -111,6 +111,8 @@ private:
   // These items all make a lot of assumptions about T.  I've been a little
   // vague on the specific assumptions, especially while the code is still
   // changing so fast.  At least I've listed out the interesting cases here.
+  // TODO "canDelete" is the wrong description.  We should be able to delete
+  // this, but then resurect it when the next block starts.
   static bool canDelete(T const &string) { return string.length() > 1; }
   static bool equal(T const &a, T const &b) { return a == b; }
   typedef typename std::unordered_set< T > Set;
@@ -153,6 +155,8 @@ public:
   // The number of items currently in the list.
   // Should be >= 256.
   size_t size() const { return _size; }
+
+  size_t highPriorityCount() const { return _size - _lowPriorityCount; }
 
   // findAndPromote() tells us how to encode an item.  Other parts of the code
   // tell us which string we should try to encode.  (E.g. do we only grab the

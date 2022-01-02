@@ -22,35 +22,41 @@
 
 #include "LzBlockShared.h"
 
+// TODO Delete the 1 byte items just like any other.  Recent data suggests
+// that will help the compression a decent amount.  Especially in light of
+// our new code that tracks the end of the MRU list.
+
+// TODO Count backwards.  We know the initial number of items in each bin
+// from the header.  We considered rounding that number, but currently we
+// know the exact number of items in each bin.  So, as we use each index, we
+// can update the count.  That seems like it would be especially helpful with
+// the special lowPriority bin.  Originally I was hoping not to update so
+// many statistics with each print.  But this might still be a happy medium.
+// Worst case I have to sum the probabilities from every bin, not every
+// possible MRU index.
+
 /* Recent thoughts and plans, 12/21/2021
  * 1)  The maximum length of the MRU list can be set on a per block basis.  We
  *     aim for 4096 entries, but if that fails we add more.  DONE!
  * 2)  Should the block header state the largest MRU index used in the block?
- *     Usually that will trim a lot of items, but the probability of those
- *     items was already low, so it might be a small improvement.  If we
- *     store the probabilities in the header, then this is implied because
- *     the items in question will all have a probability of exactly 0.
+ *     NO.  We know the largest possible value.  And the items on the high
+ *     end have a low probabity of being chosen, so getting rid of a few of
+ *     them won't help.  Also, we are already tracing the largest value
+ *     which is currently possible, and most of the time that will be lower
+ *     than the max for the whole block.
  * 3)  The probabilities of the various MRU items should *not* be dynamic.
  *     If we can describe the probabilities up front, in the header, suddenly
  *     the code gets *a lot* faster.  Updating the probabilities *each time*
  *     we write something to the entropy encoder makes things very slow.
  *     Just changing the size of the table, so the probability of any index
  *     above N goes to 0, is still fast.
- * 3a) Initial testing shows that #3 is quite feasible.  Switching from
- *     the current mechanism, where we keep a running total of how common
- *     each index is, to computing everything in advance and adding a summary
- *     to the file, will save a few percent in file size.  It's not huge, but
- *     it's enough to cover for the extra header, so it's always an
- *     improvement, even if only a small one.
+ * 3a) Initial testing shows that #3 is quite feasible.  I'm not getting as
+ *     much of an improvement as I'd hoped, but things are still in progress.
  * 4)  How does the header describe the probabilities?  One option available
  *     is to say "use the probabilities we measured in the previous block."
- *     That might work pretty well most of the time.
- * 5)  Sometimes you will *not* want to use the previous statistics.  In
- *     particular, in the first block.  We need some way to describe the
- *     probabilities efficiently.  We do not want the header to contain a 32
- *     bit number for each of the 1024ish entries in the MRU.  In the past
- *     we've tried using a series of line segments to estimate a curve like
- *     this. */
+ *     That might work pretty well most of the time.  -- On closer inspection
+ *     This doesn't seem to offer much.  And other proposed improvements like
+ *     having the exact bin sizes. */
 
 /* Adding the recycle bin to the back of the MRU helps, but it makes other
  * parts of the code less helpful.  In particular, I tested code that would
@@ -101,6 +107,10 @@
  * update the probabilities each time I change the size of the MRU.  That
  * is totally different from using a running total to compute the
  * probabilities.  The latter was slow to compute.
+ *
+ * This is mostly DONE.  I'm not getting as much out of it as I'd hoped.  Some
+ * files get worse.  However, this looks like a promising direction.  I'm still
+ * tweaking this part of the code.
  */
 
 /* This was copied from LzStream.C
@@ -159,16 +169,9 @@
  * described, and that's huge for the entropy encoder.
  *
  * In light of all of the recent changes, do we still limit ourselves to only
- * create and save a new string every OTHER time that we print a string?  Would
- * there be any value to deciding this at run time, each block?
- *
- * LZMW.C also had a delete command.  The last time we used a string
- * we deleted it from the MRU.  We had to send a command to the decompressor
- * because it would have no other way to know.  But we saved so much in the
- * entropy encoder that it more than made up for the extra delete commands.
- * The entropy encoder worked better because we had so many more low numbers
- * to compress.  We might use a similar strategy, but only for the last block.
- * It wouldn't make sense anywhere else. */
+ * create and save a new string every OTHER time that we print a string?  NO.
+ * We changed that a long time ago.  Every time we print a string to the
+ * output we consider creating a new saved string. */
 
 // Production:  g++ -o lz_bcompress -O4 -ggdb -std=c++14 LzBlock.C
 // Profiler:  g++ -o lz_bcompress -O2 -pg -ggdb -std=c++14 LzBlock.C
@@ -624,6 +627,10 @@ private:
     Profiler::Update pu(profilers.finalOrderMru_find);
     const FoundAt result = _strings.findAndPromote(toFind);
     assert(result.found());
+    // TODO if the lowPriority bin just now transitioned to empty, update the
+    // priorities of the normal bin to say that there is a 0% probability of
+    // seeing the lowPriority bin again.  -- OR.  It wouldn't be that hard
+    // to prorate this each time an item was removed from lowPriority.
     return result;
   }
 
@@ -742,13 +749,17 @@ public:
     
     std::vector< int > numerator;
 
+    int debug_writeCount = 0;
+    int debug_deleteCount = 0;
+    
     Profiler::Update pu(profilers.finalOrderMru_reportStrings);
-    const auto saveIndex = [&](FoundAt foundAt){
-      allToEncode.emplace_back(foundAt, (int16_t)_strings.size());
+    const auto saveIndex = [&](FoundAt foundAt, int16_t endIndex){
+      allToEncode.emplace_back(foundAt, endIndex);
       BinInfo *const binInfo = indexToBin(foundAt);
       binInfo->count++;
     };
     const auto saveDelete = [&](bool value) {
+      if (value) debug_deleteCount++;
       const auto range = _deleteStats.getRange(value);
       assert(range.valid());
       allToEncode.emplace_back(range);
@@ -758,6 +769,7 @@ public:
       deleteCost += range.idealCost();
     };
     const auto saveWrite = [&](int length, bool value) {
+      if (value) debug_writeCount++;
       const auto range = _writeStats.getRange(length, value);
       assert(range.valid());
       allToEncode.emplace_back(range);
@@ -773,10 +785,16 @@ public:
       savedNewer = start;
       start += length;
       const PString string(savedNewer, length);
-      saveIndex(find(string));
+      const size_t endIndex = _strings.highPriorityCount();
+      saveIndex(find(string), endIndex);
       bool recentDelete = false;
       if (length > 1)
-      {
+      { // TODO we should be able to delete this just like any other string.
+	// This string must be resurected each time we start a new block.
+	// But this part of the code shouldn't care about that.
+	// Explicitly deleting other items helped the compression a lot.
+	// Presumably this will help, too.  It should help even more now that
+	// we are trimming based on the max index available.
 	const auto it = recentUses.find(string);
 	assert(it != recentUses.end());
 	//std::cout<<"recentUses[“"<<string<<"”]:  "<<it->second<<" --> "
@@ -813,7 +831,10 @@ public:
 	     <<"Delete ratio: "<<(deleteYesCount/(double)deleteCount)
 	     <<std::endl
 	     <<"Ideal delete cost in bytes: "<<(pCostInBits(deleteYesCount/(double)deleteCount)*deleteYesCount + pCostInBits((deleteCount-deleteYesCount)/(double)deleteCount)*(deleteCount-deleteYesCount))/8<<std::endl;
-    
+
+    std::cerr<<"debug_writeCount="<<debug_writeCount
+	     <<", debug_deleteCount="<<debug_deleteCount<<std::endl;
+      
     int total = lowPriority.count;
     for (auto &kvp : firstIndexToBin)
     {
@@ -825,12 +846,53 @@ public:
     for (ToEncode const &toEncode : allToEncode)
     {
       if (toEncode.encodeIndex)
-      { // TODO look at the toEncode.maxIndex to make this a little tighter.
+      {
 	BinInfo const *binInfo = indexToBin(toEncode.foundAt);
-	toEntropyEncoder.emplace_back(binInfo->previousCount,
-				      binInfo->count,
-				      total);
-	assert(toEntropyEncoder.rbegin()->valid());
+	size_t endIndex = toEncode.maxIndex;
+	// This is the LAST bin that has not been completely cut off.
+	// This is NOT the end element that comes after the last data.
+	// This bin might be partially cut off.
+	// This bin wll contain at least one item that has not been cut off.
+	BinInfo const *lastBin =
+	  (endIndex == 0)
+	  // If the Group::MAIN part of the list is completely empty, then
+	  // return NULL.  This means that only the lowPriority bin is
+	  // available.  That might involve a lot of special cases, so let's
+	  // just mark it here as a special case.
+	  ?NULL
+	  :indexToBin(FoundAt(Group::MAIN, endIndex-1));
+	
+	// Decide which bin to use.  
+	if (lastBin != NULL)
+	{ // Skip this if only one bin is available.
+	  const size_t offsetInLastBin = endIndex - lastBin->begin;
+	  // The count of the last bin.  If the bin has been partially
+	  // excluded, this will be less the the complete count for the bin.
+	  // Round up so the probability associated with this bin will never
+	  // be 0.
+	  const size_t lastBinProratedCount =
+	    (lastBin->count * offsetInLastBin + lastBin->size()-1) / lastBin->size();
+	  // The denominator is the total size of all the complete bins plus
+	  // a prorated amount of any partial bin.
+	  const size_t denominator =
+	    lastBin->previousCount + lastBinProratedCount;
+	  /*	  
+	  std::cerr<<"end="<<endIndex<<", denominator="<<denominator
+		   <<", total="<<total
+		   <<", "<<((total - denominator)*100.0/total)<<"% savings."
+		   <<" max="<<toEncode.maxIndex
+		   <<std::endl;
+	  */
+	  const size_t countInThisBin =
+	    (binInfo == lastBin)?lastBinProratedCount:binInfo->count;
+	  toEntropyEncoder.emplace_back(binInfo->previousCount,
+					countInThisBin,
+					denominator);
+	  assert(toEntropyEncoder.rbegin()->valid());
+	}
+	
+	// TODO we need to adjust the denominator if we are in the middle of
+	// a partial block.
 	toEntropyEncoder.emplace_back(toEncode.foundAt.index - binInfo->begin,
 				      1,
 				      binInfo->size());
