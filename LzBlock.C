@@ -24,16 +24,24 @@
 
 // TODO Delete the 1 byte items just like any other.  Recent data suggests
 // that will help the compression a decent amount.  Especially in light of
-// our new code that tracks the end of the MRU list.
+// our new code that tracks the end of the MRU list.  -- DONE.  Results are
+// mixed.
 
 // TODO Count backwards.  We know the initial number of items in each bin
 // from the header.  We considered rounding that number, but currently we
 // know the exact number of items in each bin.  So, as we use each index, we
-// can update the count.  That seems like it would be especially helpful with
-// the special lowPriority bin.  Originally I was hoping not to update so
-// many statistics with each print.  But this might still be a happy medium.
-// Worst case I have to sum the probabilities from every bin, not every
-// possible MRU index.
+// can update the count.
+//
+// This seems like it would be especially helpful with the special lowPriority
+// bin.  Originally I expected that bin to have a low probability associated
+// with it.  However, in some cases this bin has a significant probability.
+// And items get removed from this bin the first time they are used.  So the
+// actual probaility of using this bin quickly drops over time, but we use
+// the original probability the entire time.
+//
+// Originally I was hoping not to update so many statistics with each print.
+// But this might still be a happy medium. Worst case I have to sum the
+// probabilities from every bin, not every possible MRU index.
 
 /* Recent thoughts and plans, 12/21/2021
  * 1)  The maximum length of the MRU list can be set on a per block basis.  We
@@ -346,13 +354,25 @@ File::~File()
 class PString
 {
 private:
-  static char all[256];
   char const *_begin;
   size_t _length;
 public:
+  static std::vector< PString > const &oneByteStrings()
+  {
+    static char all[256];
+    static std::vector< PString > result;
+    if (result.empty())
+    {
+      for (int i = 0; i < 256; i++)
+      {
+	all[i] = i;
+	result.push_back(PString(&all[i], 1));
+      }
+    }
+    return result;
+  }
+  
   PString() : _begin(NULL), _length(0) { }
-  PString(char ch) : _begin(&all[(unsigned char)ch]), _length(1)
-  { all[(unsigned char)ch] = ch; }
   PString(char const *begin, char const *end) :
     _begin(begin), _length(end - begin) { assert(end >= begin); }
   PString(char const *begin, size_t length) : _begin(begin), _length(length)
@@ -420,8 +440,6 @@ public:
     return PString(_begin + _length, length);
   }
 };
-
-char PString::all[256];
 
 namespace std
 {
@@ -578,8 +596,7 @@ public:
       char const *const newEntry = lastPrint;
       lastPrint = remaining.begin();
       const PString found = findLongest(remaining);
-      if (found.length() > 1)
-	recentUses[found]++;
+      recentUses[found]++;
       if (newEntry)
 	// Tempting to assert: this will return false (the string was already
 	// in the table so nothing changed) only if the last three strings we
@@ -643,10 +660,10 @@ private:
 
 public:
   // TODO not max size, but desired max size.
-  FinalOrderMru(int maxSize = 4096) : _strings(maxSize)
+  FinalOrderMru(int maxSize = 4096) :
+    _strings(PString::oneByteStrings(), maxSize)
   {
-    for (int i = 255; i >= 0; i--)
-      _strings.addToFront(PString((char)i));
+
   }
 
   void reportStrings(char const *start,
@@ -788,26 +805,16 @@ public:
       const size_t endIndex = _strings.highPriorityCount();
       saveIndex(find(string), endIndex);
       bool recentDelete = false;
-      if (length > 1)
-      { // TODO we should be able to delete this just like any other string.
-	// This string must be resurected each time we start a new block.
-	// But this part of the code shouldn't care about that.
-	// Explicitly deleting other items helped the compression a lot.
-	// Presumably this will help, too.  It should help even more now that
-	// we are trimming based on the max index available.
-	const auto it = recentUses.find(string);
-	assert(it != recentUses.end());
-	//std::cout<<"recentUses[“"<<string<<"”]:  "<<it->second<<" --> "
-	// 	 <<(it->second-1)<<std::endl;
-	it->second--;
-	recentDelete = !it->second;
-	saveDelete(recentDelete);
-	if (recentDelete)
-	{ // That thing we just grabbed, we will never need it again.  Delete
-	  // it from the MRU while it's still at index 0 and easy to find.
-	  recentUses.erase(it);
-	  _strings.deleteFront();
-	}
+      const auto it = recentUses.find(string);
+      assert(it != recentUses.end());
+      it->second--;
+      recentDelete = !it->second;
+      saveDelete(recentDelete);
+      if (recentDelete)
+      { // That thing we just grabbed, we will never need it again.  Delete
+	// it from the MRU while it's still at index 0 and easy to find.
+	recentUses.erase(it);
+	_strings.deleteFront();
       }
       if (savedOlder)
       {
@@ -834,13 +841,17 @@ public:
 
     std::cerr<<"debug_writeCount="<<debug_writeCount
 	     <<", debug_deleteCount="<<debug_deleteCount<<std::endl;
-      
+    
     int total = lowPriority.count;
+    //std::cerr<<"first\tsize\tcount"<<std::endl
+    //	     <<"LP\t"<<lowPriority.size()<<'\t'<<lowPriority.count<<std::endl;
     for (auto &kvp : firstIndexToBin)
     {
       BinInfo &binInfo = kvp.second;
       binInfo.previousCount = total;
       total += binInfo.count;
+      //std::cerr<<binInfo.begin<<'\t'<<binInfo.size()<<'\t'<<binInfo.count
+      //       <<std::endl;
     }
     
     for (ToEncode const &toEncode : allToEncode)
@@ -876,7 +887,7 @@ public:
 	  // a prorated amount of any partial bin.
 	  const size_t denominator =
 	    lastBin->previousCount + lastBinProratedCount;
-	  /*	  
+	  /*
 	  std::cerr<<"end="<<endIndex<<", denominator="<<denominator
 		   <<", total="<<total
 		   <<", "<<((total - denominator)*100.0/total)<<"% savings."

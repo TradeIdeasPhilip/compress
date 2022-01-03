@@ -90,6 +90,7 @@ template < class T >
 class MruBase 
 {
 private:
+  const std::vector< T > _oneByteStrings;
   const size_t _maxRecycle;
   size_t _size;
   size_t _lowPriorityCount;
@@ -100,20 +101,12 @@ private:
     return index + _lowPriorityCount >= _size;
   }
 
-  // Invariant:  This table always contains all 256 one byte strings.  They
-  // can never be deleted.  Unfortunately we need a little help from outside
-  // to guarantee that.  In particular, we rely on the main program to insert
-  // exactly the right items.  But we do check canDelete().  If the main
-  // program explicitly asks us to delete an undeletable item, that fails an
-  // assertion.  If this class tries to automatically delete an item, we
-  // explicitly choose an item that we are allowed to delete.
-
   // These items all make a lot of assumptions about T.  I've been a little
   // vague on the specific assumptions, especially while the code is still
   // changing so fast.  At least I've listed out the interesting cases here.
   // TODO "canDelete" is the wrong description.  We should be able to delete
   // this, but then resurect it when the next block starts.
-  static bool canDelete(T const &string) { return string.length() > 1; }
+  static bool oneByteString(T const &string) { return string.length() == 1; }
   static bool equal(T const &a, T const &b) { return a == b; }
   typedef typename std::unordered_set< T > Set;
 
@@ -149,8 +142,12 @@ public:
   // we need all 256 one byte strings.  Potentially you could preload this
   // with other interesting strings, as long as the encoder and decoder start
   // with the same lists.
-  MruBase(size_t maxRecycle) :
-    _maxRecycle(maxRecycle), _size(0), _lowPriorityCount(256) { }
+  MruBase(std::vector< T > const &oneByteStrings, size_t maxRecycle) :
+    _oneByteStrings(oneByteStrings),
+    _maxRecycle(maxRecycle), _size(0), _lowPriorityCount(0)
+  { // Set everything to the beginning of block state.
+    restoreAllFromRecycleBin();
+  }
 
   // The number of items currently in the list.
   // Should be >= 256.
@@ -307,63 +304,59 @@ public:
   // block's recycle bin.
   void deleteFront()
   {
-    assert(canDelete(_items[0]));
-    std::rotate(_items.begin(), _items.begin() + 1, _items.begin() + _size);
-    _size--;
-    trimRecycleBin();
+    if (oneByteString(*_items.begin()))
+    { // Remove it completely.  We'll recreate it when we start the next
+      // block.
+      std::rotate(_items.begin(), _items.begin() + 1, _items.end());
+      _size--;
+      _items.resize(_items.size()-1);
+    }
+    else
+    {
+      std::rotate(_items.begin(), _items.begin() + 1, _items.begin() + _size);
+      _size--;
+      trimRecycleBin();
+    }
   }
 
   void restoreAllFromRecycleBin()
-  {
-    Set present;
-    std::vector< T > newList;
+  { // Use a set to ensure no duplicates.  This part of the code changes a lot
+    // so it's hard to be sure if we will see a duplicate or not from the
+    // diffrent sources of data.
+    //
+    // These items are all going into the same bin.  So the order doesn't
+    // matter.  The probability associated with each of these items will be
+    // identical, regardless of their location in the bin.
+    Set recycle;
+
+    // The one byte strings are always available at the start of a block.
+    recycle.insert(_oneByteStrings.begin(), _oneByteStrings.end());
+
     auto const recycleStart = visibleEnd();
 
-    // The items that are currently in the recycler will be moved to the
-    // front of the new list.  These were used recently and are likely to be
-    // used again soon.  The most recently deleted item will come first.
+    // We were holding these items specifically to recycle them.
+    //recycle.insert(recycleStart, _items.end());
     for (auto it = recycleStart; it != _items.end(); it++)
     {
-      const bool alreadyPresent = !present.insert(*it).second;
-      if (!alreadyPresent)
-      { // The recycle bin might contain duplicates.  Probably not, or at least
-	// very rare.  (A lot of that depends on the main program and is beyond
-	// the control of this class.)  But I don't want any duplicates in the
-	// live data!
-	newList.push_back(*it);
-      }
+      recycle.insert(*it);
     }
-
-    // Next we copy the items that we are not allowed to delete.  We use these
-    // a lot at the very beginning of the file, but not much anywhere else.
-    for (auto it = _items.begin(); it < recycleStart; it++)
-    {
-      if (!canDelete(*it))
-      {
-	newList.push_back(*it);
-      }
-    }
-
+    
     // Any remaining items in the original list were left over from the
     // previous call to restoreAllFromRecycleBin().  I.e. they were not used
     // in the previous block, but they were restored from the recycle bin
-    // right before we started working on that block.  Add these last.
+    // right before we started working on that block.  Add these only if we
+    // have room.
     for (auto it = _items.begin();
-	 (it < recycleStart) && (present.size() < _maxRecycle);
+	 (it < recycleStart)
+	   && (recycle.size() < _maxRecycle + _oneByteStrings.size());
 	 it++)
     {
-      if (canDelete(*it))
-      {
-	const bool alreadyPresent = !present.insert(*it).second;
-	if (!alreadyPresent)
-	{
-	  newList.push_back(*it);
-	}
-      }
+      recycle.insert(*it);
     }
 
     // Replace the old list with the new list.  Empty the recyle bin.
-    _items = std::move(newList);
+    _items.clear();
+    _items.insert(_items.end(), recycle.begin(), recycle.end());
     _size = _items.size();
 
     // Everything that we save from the previous block is just a guess.
