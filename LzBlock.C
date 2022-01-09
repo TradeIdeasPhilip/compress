@@ -22,26 +22,84 @@
 
 #include "LzBlockShared.h"
 
-// TODO Delete the 1 byte items just like any other.  Recent data suggests
-// that will help the compression a decent amount.  Especially in light of
-// our new code that tracks the end of the MRU list.  -- DONE.  Results are
-// mixed.
-
-// TODO Count backwards.  We know the initial number of items in each bin
-// from the header.  We considered rounding that number, but currently we
-// know the exact number of items in each bin.  So, as we use each index, we
-// can update the count.
-//
-// This seems like it would be especially helpful with the special lowPriority
-// bin.  Originally I expected that bin to have a low probability associated
-// with it.  However, in some cases this bin has a significant probability.
-// And items get removed from this bin the first time they are used.  So the
-// actual probaility of using this bin quickly drops over time, but we use
-// the original probability the entire time.
-//
-// Originally I was hoping not to update so many statistics with each print.
-// But this might still be a happy medium. Worst case I have to sum the
-// probabilities from every bin, not every possible MRU index.
+/* Overview:
+ *
+ * 1) The file is split into blocks.  The compressor reads the entire block
+ *    before it tries to write anything to the file.  The compressor does
+ *    not look past the end of a block until it is finished processing that
+ *    block and writing the data to the file.  The compressor has a limited
+ *    ability to look at the previous blocks, but it mostly focuses on one
+ *    block at a time.  
+ *
+ *    The exact size of a block depends on the data to be compressed, some
+ *    configurable parameters, and the details of the algorithm.  The
+ *    compressor takes two passes through each block.  On the first pass it
+ *    records notes.  When those internal notes get to a specific size, the
+ *    compressor marks the end of the block then starts its second pass
+ *    through the block.
+ *
+ *    The blocks are helpful for both the rANS encoder and the other parts
+ *    of the algorithm.  The compressor could use bigger blocks, but that
+ *    requires more memory.  Generally bigger blocks mean better compression.
+ *    Bigger blocks can make the program run more slowly.
+ *
+ * 2) The last stage of the compression comes from an entropy encoder.
+ *
+ *    I use the rANS library because it works well for me.  In particular
+ *    rANS is much more precise than a Huffman tree.  This code writes a
+ *    lot of yes/no decisions to the entropy encoder.  Huffman could never
+ *    cost less than one bit per decision, but rANS can do much better.
+ *
+ *    The rest of the code just tries to predict things as well as possible.
+ *    Sometimes that means clever ways to make a guess.  I.e. finding which
+ *    inputs correlate best to the probability of outputting each code.
+ *    Sometimes that means reorganizing the code to make the output more
+ *    predictable.  In particular, we are storing the strings with the
+ *    most recently used (MRU) strings at the front of the list.  So there
+ *    will be a lot more requests for strings near the front of the list than
+ *    the back of the list.
+ *
+ * 3) The first stage of the compression maintains a list of strings that
+ *    we know how to save and restore.  At any point in the file the 
+ *    compressor will look for the longest string in the list that matches
+ *    the input.  It will send the index of that string to the entropy
+ *    encoder and then to the compressed file.
+ *
+ *    This list can save space in two different ways.
+ *    a) If the list contains long (but relevant) strings, then we only have
+ *       to write a single number to represent a long string of bytes.
+ *    b) If we organize this list right, the output will be predictable and
+ *       the entropy encoder can write that index number with very few bits.
+ *
+ *    The list always contains all 256 one byte strings.  In the worst case
+ *    the compressor can always make progress by sending an index representing
+ *    a single byte.
+ *
+ *    The other strings in the list are all copied from earlier parts of the
+ *    file.  The algorithm tries to predict which strings will be useful.
+ *    The algorithm was inspired by LZ78.  In particular, it starts with
+ *    a string that is already in the list, and the next time we see that
+ *    string we add a slightly longer string to the list.
+ *
+ *    This program a huge advantage over LZ78 because the compressor can
+ *    look ahead to the end of the block.  We can see several strings that
+ *    might look interesting, but we only save a string to the list if we
+ *    KNOW we are going to need it.  The compressor has to a send a yes/no
+ *    to the entropy encoder each time that it considers a new string.
+ *
+ *    There are more explicit ways to pick a string.  But those require more
+ *    bits to tell the decompressor which string we need.  This series of
+ *    yes/no answers is very cheap to write.  And the LZ78-ish algorithm does
+ *    a decent job of selecting relevant strings.
+ *
+ *    The compressor also writes to the file to tell the decompressor when to
+ *    delete a string from the list.  By explicitly deleting old strings,
+ *    we can keep the list short and keep the index numbers small.  The cost
+ *    of the delete instructions is far less than the savings from the smaller
+ *    index numbers.  Like the save instruction, we are writing a simple yes
+ *    or no to the entropy encoder.  We only look at the the mostly recently
+ *    used string, so we don't have to explicitly say which string to delete.
+ */
 
 /* Recent thoughts and plans, 12/21/2021
  * 1)  The maximum length of the MRU list can be set on a per block basis.  We
@@ -56,15 +114,13 @@
  *     If we can describe the probabilities up front, in the header, suddenly
  *     the code gets *a lot* faster.  Updating the probabilities *each time*
  *     we write something to the entropy encoder makes things very slow.
- *     Just changing the size of the table, so the probability of any index
- *     above N goes to 0, is still fast.
- * 3a) Initial testing shows that #3 is quite feasible.  I'm not getting as
- *     much of an improvement as I'd hoped, but things are still in progress.
- * 4)  How does the header describe the probabilities?  One option available
- *     is to say "use the probabilities we measured in the previous block."
- *     That might work pretty well most of the time.  -- On closer inspection
- *     This doesn't seem to offer much.  And other proposed improvements like
- *     having the exact bin sizes. */
+ *     UPDATE:  I found a happy medium.  I've got a small number of bins.
+ *     Each bin contains one or more indicies.  Within a bin, all indicies
+ *     have the sam probability.  I initialize each bin with the exact number
+ *     of hits we expect, read from the block header.  Each time I use an
+ *     index I update the count, so I have to recompute the probabilities.
+ *     But I only have to walk through the list of bins, not the entire list
+ *     of indicies, so it's not terrible. */
 
 /* Adding the recycle bin to the back of the MRU helps, but it makes other
  * parts of the code less helpful.  In particular, I tested code that would
@@ -132,54 +188,7 @@
  * prints a special instruction to the file so the decompressor will know
  * which strings to save.  LZMW.C gave good compression, but it became
  * unmanageable for large files.  This should be a compromise between the
- * two approaches.  
- *
- * We start by examining the first part of the file.  We see which strings
- * were created and used in this part of the file.  If a string will be used
- * we send a special save instruction to the output.  We leave all the recently
- * added strings in the MRU list, and hope they will be useful for future
- * blocks.  Then we process the next block the same way.
- *
- * Are we losing a lot of compression because we see a string in one block
- * then we see the second occurrence of it in the next block?  So we considered
- * saving it, but we decided against, and it turns out we should have saved it.
- * In general this won't be any worse than LzStream.C.  That was just guessing
- * which strings to use.  Of course, it's possible that we will save a lot
- * fewer strings than before, and without really knowing, it's better to
- * save more strings.  I don't believe that.  It seems like most strings
- * will be reused very soon, or not at all.  So only strings near the very
- * end of a block are likely to be missed.  By having a lot fewer extra
- * strings we can have a tighter grouping in our MRU list, and the entropy
- * encoder will be able to do a better job.
- *
- * The data suggests that we should save every string of length 2 or 3.  These
- * always have over a 50% chance of being used again.  That could be mixed
- * with the look-ahead.  If a string has a length of 2 or 3 or it is used in
- * this block, save it.  If we know we are working on the last block, we don't
- * have to apply this new rule.  For the last block only save items that we
- * know will be used again.
- *
- * This suggests an interesting idea.  The header of each block would include
- * a small integer N.  Every time the encoder builds a new string we compare
- * the length of that string to N.  If the string has N or fewer bytes, we
- * always add it to the MRU list.  Otherwise we use look ahead to decide
- * whether or not to add the string, and we send a Boolean to the output to
- * record our decision.  Presumably we use look ahead to determine what's the
- * best value for N, otherwise we wouldn't bother to save its value in each
- * block and it would just be a constant.
- *
- * A slight variation:  Each block header contains more information about the
- * probability of saving a string based on the string's length.  E.g. 2 or 3,
- * bytes -> 100% chance.  4 -> 40%, 5 -> 30%, >= 6 -> 20%.  Seems like the
- * length of the new string is a useful piece of information that the
- * compressor and the decompressor share.  I don't have that data in front of
- * me at the moment, but I've definitely seen trends similar to what I've
- * described, and that's huge for the entropy encoder.
- *
- * In light of all of the recent changes, do we still limit ourselves to only
- * create and save a new string every OTHER time that we print a string?  NO.
- * We changed that a long time ago.  Every time we print a string to the
- * output we consider creating a new saved string. */
+ * two approaches.  */
 
 // Production:  g++ -o lz_bcompress -O4 -ggdb -std=c++14 LzBlock.C
 // Profiler:  g++ -o lz_bcompress -O2 -pg -ggdb -std=c++14 LzBlock.C
@@ -723,12 +732,11 @@ public:
       int begin;
       int end;
       int count;
-      int previousCount;
       int size() const { return end-begin; }
       bool valid() const { return begin >= 0; }
-      BinInfo() : begin(-1), end(-1), count(0), previousCount(0) { }
+      BinInfo() : begin(-1), end(-1), count(0) { }
       BinInfo(int begin, int end) :
-	begin(begin), end(end), count(0), previousCount(0) { }
+	begin(begin), end(end), count(0) { }
     };
     std::map< int, BinInfo > firstIndexToBin;
     BinInfo lowPriority(0, _strings.size());
@@ -842,77 +850,84 @@ public:
     std::cerr<<"debug_writeCount="<<debug_writeCount
 	     <<", debug_deleteCount="<<debug_deleteCount<<std::endl;
     
-    int total = lowPriority.count;
-    //std::cerr<<"first\tsize\tcount"<<std::endl
-    //	     <<"LP\t"<<lowPriority.size()<<'\t'<<lowPriority.count<<std::endl;
-    for (auto &kvp : firstIndexToBin)
-    {
-      BinInfo &binInfo = kvp.second;
-      binInfo.previousCount = total;
-      total += binInfo.count;
-      //std::cerr<<binInfo.begin<<'\t'<<binInfo.size()<<'\t'<<binInfo.count
-      //       <<std::endl;
-    }
-    
     for (ToEncode const &toEncode : allToEncode)
     {
       if (toEncode.encodeIndex)
       {
-	BinInfo const *binInfo = indexToBin(toEncode.foundAt);
-	size_t endIndex = toEncode.maxIndex;
-	// This is the LAST bin that has not been completely cut off.
-	// This is NOT the end element that comes after the last data.
-	// This bin might be partially cut off.
-	// This bin wll contain at least one item that has not been cut off.
-	BinInfo const *lastBin =
-	  (endIndex == 0)
-	  // If the Group::MAIN part of the list is completely empty, then
-	  // return NULL.  This means that only the lowPriority bin is
-	  // available.  That might involve a lot of special cases, so let's
-	  // just mark it here as a special case.
-	  ?NULL
-	  :indexToBin(FoundAt(Group::MAIN, endIndex-1));
+	BinInfo *binToWrite = NULL;
+	int writeStart;
+	BinInfo *maxBin = &lowPriority;
+	int maxCount = 0;
+	for (auto &kvp : firstIndexToBin)
+	{
+	  BinInfo *nextBin = &kvp.second;
+	  if ((!binToWrite) && ((toEncode.foundAt.group == Group::RECYCLED) ||(toEncode.foundAt.group == Group::MAIN && toEncode.foundAt.index < nextBin->begin)))
+	  {
+	    binToWrite = maxBin;
+	    writeStart = maxCount;
+	  }
+	  maxCount += maxBin->count;
+	  if (toEncode.maxIndex <= nextBin->begin)
+	  {
+	    break;
+	  }
+	  maxBin = nextBin;
+	}
+
+	const size_t lastBinProratedCount =
+	  (maxBin == &lowPriority)
+	  ?maxBin->count
+	  :(maxBin->count * (toEncode.maxIndex - maxBin->begin) + maxBin->size()-1) / maxBin->size();
+
+	maxCount += lastBinProratedCount;
 	
-	// Decide which bin to use.  
-	if (lastBin != NULL)
-	{ // Skip this if only one bin is available.
-	  const size_t offsetInLastBin = endIndex - lastBin->begin;
-	  // The count of the last bin.  If the bin has been partially
-	  // excluded, this will be less the the complete count for the bin.
-	  // Round up so the probability associated with this bin will never
-	  // be 0.
-	  const size_t lastBinProratedCount =
-	    (lastBin->count * offsetInLastBin + lastBin->size()-1) / lastBin->size();
-	  // The denominator is the total size of all the complete bins plus
-	  // a prorated amount of any partial bin.
-	  const size_t denominator =
-	    lastBin->previousCount + lastBinProratedCount;
-	  /*
-	  std::cerr<<"end="<<endIndex<<", denominator="<<denominator
-		   <<", total="<<total
-		   <<", "<<((total - denominator)*100.0/total)<<"% savings."
-		   <<" max="<<toEncode.maxIndex
-		   <<std::endl;
-	  */
-	  const size_t countInThisBin =
-	    (binInfo == lastBin)?lastBinProratedCount:binInfo->count;
-	  toEntropyEncoder.emplace_back(binInfo->previousCount,
-					countInThisBin,
-					denominator);
+	const size_t countInThisBin =
+	  (binToWrite == maxBin)?lastBinProratedCount:binToWrite->count;
+
+	// Write the bin number.
+	toEntropyEncoder.emplace_back(writeStart,
+				      countInThisBin,
+				      maxCount);
+	assert(toEntropyEncoder.rbegin()->valid());
+
+	{ // WRITE the position in the bin
+	  // Start with the position of the item relative to its bin.
+	  const uint32_t start = toEncode.foundAt.index - binToWrite->begin;
+	  // Every index in a bin has the same probability as every other
+	  // index in the same bin.
+	  const uint32_t freq = 1;
+	  // The denominator is the number of unique values that could be saved
+	  // in the bin.
+	  const uint32_t scaleEnd =
+	    ((binToWrite == maxBin) && (binToWrite != &lowPriority))
+	    // We are refering to the last bin that is currently possible.
+	    // Parts of this bin might also be impossible.  Modify the normal
+	    // size() method to stop at the highest currently possible index.
+	    // Note that the lowPriority bin works a little differently, so we
+	    // never want to use this special logic on that bin.
+	    ?(toEncode.maxIndex - binToWrite->begin)
+	    :binToWrite->size();
+	  toEntropyEncoder.emplace_back(start, freq, scaleEnd);
 	  assert(toEntropyEncoder.rbegin()->valid());
 	}
 	
-	// TODO we need to adjust the denominator if we are in the middle of
-	// a partial block.
-	toEntropyEncoder.emplace_back(toEncode.foundAt.index - binInfo->begin,
-				      1,
-				      binInfo->size());
-	assert(toEntropyEncoder.rbegin()->valid());
+	binToWrite->count--;
+	if (binToWrite == &lowPriority)
+	{
+	  binToWrite->end--;
+	}	
+	
       }
       else
       {
 	toEntropyEncoder.emplace_back(toEncode.range);
       }
+    }
+
+    assert(lowPriority.count == 0);
+    for (auto const &kvp : firstIndexToBin)
+    {
+      assert(kvp.second.count == 0);
     }
         
   }
