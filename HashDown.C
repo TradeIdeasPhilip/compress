@@ -44,6 +44,16 @@
 // The goal is to look at the statistics and predict the next byte, just
 // like Eight.C, so we can send some good statistics to the rANS encoder.
 
+// Idea for the bytes that we can't find in our new HashedHistory.
+// Start with a basic SymbolCounter to say how common each byte is in the
+// input file so far.
+// But then look at the SymbolCounter object.  We already have one of these
+// because that was the object that said the current character was not
+// available in the HashedHistory.
+// Every byte that is available in HashedHistory gets removed from the
+// symbol counter, its probability is set to 0.
+// This simple combination should make good predictions.
+
 class HashedHistory
 {
 private:
@@ -59,7 +69,18 @@ private:
     // Then, if we're doing a hash of N bytes we get the hash for all the
     // smaller strings for free.
     //
-    // Also make sure that the hash for a 1 byte string is that byte!
+    // TODO Change the hash so that a 1 byte string will always return that
+    // byte.  So when we look at one byte strings, we always get that byte
+    // back as the hash.  Otherwise our table with one byte of context
+    // looks terrible.
+    // OR There is a lot of wasted space it the table with one byte of
+    // contect.  And there always will be for text files.  Maybe we take
+    // the table of one byte context, and give it module of a prime near
+    // 128.  Then raise the max number of entries per hash.  So we could
+    // request the same amount of data, but hopefully a lot more of it will
+    // be in use.  So we'd exect better compression at the cost of more CPU
+    // time and more complicated code.  Intriguing.  This is worth a try
+    // just see!
     return std::_Hash_impl::hash(begin, end - begin);
   }
   size_t hash(char const *end)
@@ -87,7 +108,7 @@ public:
     auto const hashCode = hash(newChar);
     auto const infoForHash = startOfHash(hashCode);
     char &entryCountForHash = *infoForHash;
-    const int entryIndex = _entriesPerHash % _entriesPerHash;
+    const int entryIndex = entryCountForHash % _entriesPerHash;
     memcpy(infoForHash + 1 + entryIndex * _sizePerEntry,
 	   newChar - _bytesOfHistory,
 	   _sizePerEntry);
@@ -116,6 +137,43 @@ public:
       }
     }
   }
+  void detailedDump(std::ostream &out)
+  {
+    out<<"=========="<<std::endl;
+    std::map<int, int> bucketsWithThisEntryCount;
+    for (int h = 0; h < _hashModulus; h++)
+    {
+      char const *const hashStart = &_body[h * _sizePerHash];
+      const int entryCountForHash = *hashStart;
+      const int endIndex = std::min<int>(entryCountForHash, _entriesPerHash);
+      bucketsWithThisEntryCount[endIndex]++;
+      out<<h<<": [";
+      for (int entry = 0; entry < endIndex; entry++)
+      {
+	if (entry)
+	{
+	  out<<", ";
+	}
+	out<<"'";
+	out.write(hashStart + 1 + entry * _sizePerEntry, _sizePerEntry);
+	out<<"'";
+      }
+      out<<"]"<<std::endl;
+    }
+    for (auto const &kvp : bucketsWithThisEntryCount)
+    {
+      auto const entryCount = kvp.first;
+      auto const numberOfBuckets = kvp.second;
+      out<<numberOfBuckets<<" bucket"<<((numberOfBuckets==1)?"":"s")
+	 <<" with "<<entryCount<<((entryCount==1)?" entry.":" entries.")
+	 <<std::endl;
+    }
+  }
+  ~HashedHistory()
+  {
+    detailedDump(std::cout);
+  }
+
 };
 
 typedef std::map<char, int> CharCounter;
