@@ -11,6 +11,7 @@ lz_decompress
 a3
 eight
 uneight
+hash-down
 output
 *.o
 *.s
