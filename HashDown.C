@@ -44,15 +44,73 @@
 // The goal is to look at the statistics and predict the next byte, just
 // like Eight.C, so we can send some good statistics to the rANS encoder.
 
-// Idea for the bytes that we can't find in our new HashedHistory.
+// Idea for the bytes that we can't find in our new HashedHistory:
 // Start with a basic SymbolCounter to say how common each byte is in the
 // input file so far.
-// But then look at the SymbolCounter object.  We already have one of these
+// But then look at the CharCounter object.  We already have one of these
 // because that was the object that said the current character was not
 // available in the HashedHistory.
-// Every byte that is available in HashedHistory gets removed from the
-// symbol counter, its probability is set to 0.
+// Every byte that is available in CharCounter gets removed from the
+// SymbolCounter, its probability is set to 0.
 // This simple combination should make good predictions.
+
+// Interesting.  My test files show typically only find around 2 to 3
+// characters each time we check AllHashedHistory.  See "Average size() of
+// CharCounter" in this file and the output for more details.
+//
+// The stuff we can compress goes down to about 3-4% of its original size.
+// That's promising.
+//
+// Typically I see 67% of the bytes being handled by this.  A big log file
+// got up around 95%.  That's promising as part of the solution.  But we need
+// more than the minimum to fill in the gaps right now.
+
+// Most of the time the table with a context of 1 byte has a whole lot of
+// empty slots in the hash table.  Which means that the other slots are getting
+// hammered.  Entries are getting MRU'ed out of the table way to quickly to
+// be useful.  In short, let's jettison this part.  Replace it with something
+// better.
+//
+// Proposal:  When looking at one byte of context, do not use a HashedHistory.
+// Instead use something that's worked well in another project.  Use a map to
+// store the count for *every* pair of bytes that we've seen.  That can mean
+// up to 64k entries.  In this case brute force seems to work, but the memory
+// grows exponentially and even 2 bytes of context would probably be too much.
+// Trim the table as needed by diving everything by 2.  1 will go to 0; we
+// plan to go a good job at the next level, so it's okay if something falls
+// off of this table.
+//
+// We also need to add a third option.  *Any* byte should be available from
+// this option at any time.  Simple enough.  Use a SymbolCounter to track the
+// frequency of each byte.  That class automatically ensures that every byte
+// has a weight that is greater than 0.
+//
+// Output format:  Each byte generates two calls to the rANS encoder.  The
+// first says which algorithm to use.  Then use that algorithm to encode the
+// data.  The output from different algorithms will use different scales, and
+// in these cases I find it best to break the work up into two calls to the
+// encoder, rather than trying to massage the data all into one scale.
+//
+// We have three different ways to process the data:
+// 1) Look at n bytes of context with a HashedHistory.  We know how to weight
+//    the data associated with different values of n, so we combine all the
+//    results in a single AllHashedHistory object.
+// 2) Look at the full data set for one byte of context.  I.e. not a hash
+//    table.  Ideally no data lost, although we might have to divide the
+//    counts each by two, and throw out the remainder sometimes.
+// 3) Use a SymbolCounter to track the frequency of each byte regardless of
+//    context.
+//
+// A byte might be available from more than one of those algorithms.
+// Ignoring that would not be good for compression.  We give the highest
+// priority to algorithm #1, and the lowest to algorithm #3.  If a byte is
+// available from algorithm #1 and from algorithm #2, algorithm #2 must delete
+// the byte from its tables.  Algorithm #2 will now associate a probability
+// of 0 with that byte.
+
+// Speed is surprisingly terrible compared to gzip -9.  I'm mildly curious why,
+// but I don't plan to do anything about it.
+
 
 class HashedHistory
 {
@@ -63,7 +121,7 @@ private:
   const int _sizePerEntry;
   const int _sizePerHash;
   std::string _body;
-  static size_t hash(char const *begin, char const *end)
+  static uint64_t hash(char const *begin, char const *end)
   { // How expensive is this?  We could do a hash where each new byte that
     // we add to the left does one small operation and doesn't start fresh.
     // Then, if we're doing a hash of N bytes we get the hash for all the
@@ -81,7 +139,44 @@ private:
     // be in use.  So we'd exect better compression at the cost of more CPU
     // time and more complicated code.  Intriguing.  This is worth a try
     // just see!
-    return std::_Hash_impl::hash(begin, end - begin);
+    if (end - begin == 1)
+    {
+      return *(uint8_t const *)begin;
+    }
+    else
+    { // TODO This should be something that can be repeated on different
+      // computers.  As far as I know std::_Hash_impl::hash() is undocumented
+      // and the C++ standard does not specify what a hash function should be.
+      //
+      // https://stackoverflow.com/questions/299304/why-does-javas-hashcode-in-string-use-31-as-a-multiplier
+      // The Java string hash function is very simple.
+      return std::_Hash_impl::hash(begin, end - begin);
+    }
+
+    // This really sucks:
+    /*
+    uint64_t result = 0;
+    while (end - begin >= 8)
+    {
+      result += *(uint64_t const *)begin;
+      begin += 8;
+    }
+    if (end - begin >= 4)
+    {
+      result += (*(uint32_t const *)begin)<<30;
+      begin += 4;
+    }
+    if (end - begin >= 2)
+    {
+      result += (*(uint16_t const *)begin)<<11;
+      begin += 2;
+    }
+    if (end - begin >= 1)
+    {
+      result += *(uint8_t const *)begin;
+    }
+    return result;
+    */
   }
   size_t hash(char const *end)
   {
@@ -231,11 +326,13 @@ void processFile(File &file)
   AllHashedHistory allHashedHistory;
   int totalFound = 0;
   double costInBits = 0;
+  int64_t totalInCharCounter = 0;
   for (unsigned int i = 0; i < file.size(); i++)
   {
     CharCounter charCounter;
     int denominator;
     allHashedHistory.getStats(file, i, charCounter, denominator);
+    totalInCharCounter += charCounter.size();
     const int numerator = charCounter[file.begin()[i]];
     if (numerator != 0)
     {
@@ -246,6 +343,8 @@ void processFile(File &file)
   }
   std::cout<<"Bytes encoded: "<<totalFound<<", afterEncoding: "
 	   <<(costInBits/8)<<std::endl;
+  std::cout<<"Average size() of CharCounter:"
+	   <<(totalInCharCounter/(double)file.size())<<std::endl;
 }
 
 int main(int argc, char **argv)
