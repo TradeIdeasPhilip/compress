@@ -269,7 +269,7 @@ public:
   }
   ~HashedHistory()
   {
-    detailedDump(std::cout);
+    //detailedDump(std::cout);
   }
 
 };
@@ -333,7 +333,9 @@ public:
   OneByteContext() : _overflowCount(0) { }
   void add(char const *newChar)
   {
-    const uint16_t key = *(uint16_t *)(newChar - 1);
+    const uint8_t context = *(newChar - 1);
+    const uint8_t suggestion = *newChar;
+    const uint16_t key = (context<<8) | suggestion;
     uint16_t &counter = _counters[key];
     if (counter == 0xffff)
     { 
@@ -345,14 +347,6 @@ public:
     {
       counter++;
     }
-  }
-
-  // Returns true if the probability of seeing (*end) in the given context
-  // is defined and is greater than 0.
-  bool canMatchThis(char const *end) const
-  {
-    const uint16_t key = *(uint16_t *)(end - 1);
-    return _counters.count(key);
   }
 
   // The expected likelihood of each byte that we might want to place at
@@ -369,6 +363,17 @@ public:
       result[it->first] = it->second; 
     }
     return result;
+  }
+  void superDetailedDump(std::ostream &out)
+  {
+    for (auto const &kvp : _counters)
+    {
+      const auto key = kvp.first;
+      const char context = key>>8;
+      const char suggestion = key;
+      const auto count = kvp.second;
+      out<<context<<' '<<suggestion<<" => "<<count<<std::endl;
+    }
   }
   void detailedDump(std::ostream &out)
   {
@@ -497,15 +502,8 @@ void processFile(File &file)
       allHashedHistory.add(file, i);
     }
     if (!encoded)
-    { // There is a bug in this OneByteContext section.
-      // TODO find and fix it.
-      // This algorithm is missing too much stuff.
-      // At worst the number of items that we decline and pass on to
-      // the third algorithm should be no more than
-      // OneByteContext::_counters.size().
-      // In practice we are passing way more than that along.
-      // Also, the compression that we're getting for the bytes that we
-      // attempt doesn't work as well as I'd expect.
+    { // TODO the compression that we're getting for the bytes that we
+      // attempt doesn't work as well as I'd expect.  Take a closer look.
       if (i > 0)
       {
 	std::map<char, int> counts = oneByteContext.getCounts(nextBytePtr);
@@ -527,6 +525,7 @@ void processFile(File &file)
 	  uint64_t denominator = 0;
 	  for (auto const &kvp : counts)
 	  {
+	    // TODO skip everything in exclude!
 	    denominator += kvp.second;
 	  }
 	  assert(denominator < RansRange::SCALE_END);
@@ -540,6 +539,14 @@ void processFile(File &file)
     {
       oneByteContext.add(nextBytePtr);
     }
+    static int debugCounter = 0;
+    if (debugCounter < 10)
+    {
+      debugCounter++;
+      std::cout<<"i = "<<i<<std::endl;
+      oneByteContext.superDetailedDump(std::cout);
+    }
+	
     if (!encoded)
     {
       // TODO
