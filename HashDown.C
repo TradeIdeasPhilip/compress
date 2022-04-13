@@ -1,6 +1,7 @@
 #include <string.h>
 #include <string>
 #include <map>
+#include <set>
 #include <vector>
 #include <iostream>
 #include "File.h"
@@ -242,6 +243,7 @@ public:
       const int entryCountForHash = *hashStart;
       const int endIndex = std::min<int>(entryCountForHash, _entriesPerHash);
       bucketsWithThisEntryCount[endIndex]++;
+      /*
       out<<h<<": [";
       for (int entry = 0; entry < endIndex; entry++)
       {
@@ -254,6 +256,7 @@ public:
 	out<<"'";
       }
       out<<"]"<<std::endl;
+      */
     }
     for (auto const &kvp : bucketsWithThisEntryCount)
     {
@@ -280,8 +283,7 @@ private:
 public:
   AllHashedHistory()
   {
-    _data.reserve(8);
-    _data.emplace_back(1, 256);
+    _data.reserve(7);
     _data.emplace_back(2, 257);
     _data.emplace_back(3, 263);
     _data.emplace_back(4, 269);
@@ -321,30 +323,240 @@ public:
   }
 };
 
+class OneByteContext
+{
+private:
+  std::map<uint16_t, uint16_t> _counters;
+  int _overflowCount;
+public:
+  int bytesOfHistory() const { return 1; }
+  OneByteContext() : _overflowCount(0) { }
+  void add(char const *newChar)
+  {
+    const uint16_t key = *(uint16_t *)(newChar - 1);
+    uint16_t &counter = _counters[key];
+    if (counter == 0xffff)
+    { 
+      _overflowCount++;
+      // TODO handle the overflow.  Divide eerything by 2.
+      // DELETE ANYTHING that goes to 0.
+    }
+    else
+    {
+      counter++;
+    }
+  }
+
+  // Returns true if the probability of seeing (*end) in the given context
+  // is defined and is greater than 0.
+  bool canMatchThis(char const *end) const
+  {
+    const uint16_t key = *(uint16_t *)(end - 1);
+    return _counters.count(key);
+  }
+
+  // The expected likelihood of each byte that we might want to place at
+  // *end based on the context.
+  std::map<char, int> getCounts(char const *end)
+  {
+    std::map<char, int> result;
+    const uint16_t start = ((uint16_t)*(end-1))<<8;
+    const uint16_t max = start | 0xff;
+    for (auto it = _counters.lower_bound(start);
+	 (it != _counters.end()) && (it->first <= max);
+	 it++)
+    {
+      result[it->first] = it->second; 
+    }
+    return result;
+  }
+  void detailedDump(std::ostream &out)
+  {
+    out<<"_______________ One byte of context ____________________"<<std::endl
+       <<"_overflowCount = "<<_overflowCount<<std::endl;
+    
+    // number of possibilites for a context -> number of contexts with this
+    // many possibilities.
+    std::map<int, int> accumulator;
+    int totalNumberOfContexts = 0;
+    int lastContext = 0x12345678;
+    int possibilitiesForThisContext = 0;
+    auto const processContextEnd = [&]() {
+      if (possibilitiesForThisContext)
+      {
+	accumulator[possibilitiesForThisContext]++;
+	totalNumberOfContexts++;
+	possibilitiesForThisContext = 0;
+      }
+    };
+    for (auto const &kvp : _counters)
+    {
+      const auto key = kvp.first;
+      const char context = key >>8;
+      if (context != lastContext)
+      {
+	processContextEnd();
+	lastContext = context;
+      }
+      possibilitiesForThisContext++;
+    }
+    processContextEnd();
+    for (auto const &kvp : accumulator)
+    {
+      auto const numberOfPossibilities = kvp.first;
+      auto const numberOfContexts = kvp.second;
+      out<<numberOfContexts<<" context"<<((numberOfContexts!=1)?"s":"")
+	 <<" with "<<numberOfPossibilities<<" possibilities."<<std::endl;
+    }
+    out<<"For a total of "<<totalNumberOfContexts<<" context"
+       <<((totalNumberOfContexts!=1)?"s":"")<<" with at least one possibility."
+       <<std::endl;
+    out<<"A total of "<<_counters.size()
+       <<" entries in OneByteContext::_counters"<<std::endl;      
+  }
+  ~OneByteContext()
+  {
+    detailedDump(std::cout);
+  }
+};
+
+class ZeroByteContext
+{
+private:
+  SymbolCounter _symbolCounter;
+  int _bytesProcessedSinceLastReset;
+public:
+  int bytesOfHistory() const { return 0; }
+  ZeroByteContext() : _bytesProcessedSinceLastReset(0) { }
+  void add(char const *newChar)
+  { // TODO move the MAX logic into SymbolCounter::increment() in RansHelper.h.
+    // I'd do it now, but the algorithm is still being tested and SymbolCounter
+    // is already being used in more mature programs.
+    static const int MAX = RansRange::SCALE_END>>2;
+    if (_bytesProcessedSinceLastReset >= MAX)
+    {
+      _bytesProcessedSinceLastReset -= MAX;
+      _symbolCounter.reduceOld();
+    }
+    _symbolCounter.increment(*newChar);
+    _bytesProcessedSinceLastReset++;
+  }
+  double getCostInBits(std::set<char> const &exclude, char toEncode)
+  {
+    uint64_t denominator = 0;
+    for (int i = 0; i < 256; i++)
+    {
+      denominator += _symbolCounter.freq(i);
+    }
+    assert(denominator < RansRange::SCALE_END);
+    const int numerator = _symbolCounter.freq((unsigned char)toEncode);
+    return pCostInBits(numerator / (double)denominator);
+  }
+};
+
 void processFile(File &file)
 {
   AllHashedHistory allHashedHistory;
-  int totalFound = 0;
-  double costInBits = 0;
+  int hashedHistoryFound = 0;
+  double hashedHistoryCostInBits = 0;
   int64_t totalInCharCounter = 0;
+  
+  OneByteContext oneByteContext;
+  int oneByteContextFound = 0;
+  double oneByteContextCostInBits = 0;
+
   for (unsigned int i = 0; i < file.size(); i++)
   {
-    CharCounter charCounter;
-    int denominator;
-    allHashedHistory.getStats(file, i, charCounter, denominator);
-    totalInCharCounter += charCounter.size();
-    const int numerator = charCounter[file.begin()[i]];
-    if (numerator != 0)
+    bool encoded = false;
+    std::set< uint8_t > exclude;
+    auto const nextBytePtr = file.begin() + i;
     {
-      totalFound++;
-      costInBits += pCostInBits(numerator/(double)denominator);
+      CharCounter charCounter;
+      int denominator;
+      allHashedHistory.getStats(file, i, charCounter, denominator);
+      const int numerator = charCounter[*nextBytePtr];
+      if (numerator != 0)
+      {
+	totalInCharCounter += charCounter.size();
+	hashedHistoryFound++;
+	hashedHistoryCostInBits += pCostInBits(numerator/(double)denominator);
+	encoded = true;
+      }
+      else
+      {
+	for (auto const &kvp : charCounter)
+	{
+	  const char byte = kvp.first;
+	  const int count = kvp.second;
+	  if (count)
+	  {
+	    exclude.insert(byte);
+	  }
+	}
+      }
+      allHashedHistory.add(file, i);
     }
-    allHashedHistory.add(file, i);
+    if (!encoded)
+    { // There is a bug in this OneByteContext section.
+      // TODO find and fix it.
+      // This algorithm is missing too much stuff.
+      // At worst the number of items that we decline and pass on to
+      // the third algorithm should be no more than
+      // OneByteContext::_counters.size().
+      // In practice we are passing way more than that along.
+      // Also, the compression that we're getting for the bytes that we
+      // attempt doesn't work as well as I'd expect.
+      if (i > 0)
+      {
+	std::map<char, int> counts = oneByteContext.getCounts(nextBytePtr);
+	const int numerator = counts[*nextBytePtr];
+	if (numerator == 0)
+	{
+	  for (auto const &kvp : counts)
+	  {
+	    const int count = kvp.second;
+	    if (count > 0)
+	    {
+	      exclude.insert(kvp.first);
+	    }
+	  }
+	}
+	else
+	{
+	  encoded = true;
+	  uint64_t denominator = 0;
+	  for (auto const &kvp : counts)
+	  {
+	    denominator += kvp.second;
+	  }
+	  assert(denominator < RansRange::SCALE_END);
+	  const double cost = pCostInBits(numerator / (double)denominator);
+	  oneByteContextFound++;
+	  oneByteContextCostInBits += cost;
+	}
+      }
+    }
+    if (i > 0)
+    {
+      oneByteContext.add(nextBytePtr);
+    }
+    if (!encoded)
+    {
+      // TODO
+    }
+    
   }
-  std::cout<<"Bytes encoded: "<<totalFound<<", afterEncoding: "
-	   <<(costInBits/8)<<std::endl;
-  std::cout<<"Average size() of CharCounter:"
-	   <<(totalInCharCounter/(double)file.size())<<std::endl;
+  std::cout<<"AllHashedHistory bytes encoded: "<<hashedHistoryFound
+	   <<", afterEncoding: "
+	   <<(hashedHistoryCostInBits/8)<<std::endl;
+  std::cout<<"OneByteContext bytes encoded: "<<oneByteContextFound
+	   <<", afterEncoding: "
+	   <<(oneByteContextCostInBits/8)<<std::endl;
+  std::cout<<"Bytes skipped (TODO!): "
+	   <<(file.size() - hashedHistoryFound - oneByteContextFound)
+	   <<std::endl;
+  std::cout<<"Average size() of CharCounter (AllHashedHistory):"
+	   <<(totalInCharCounter/(double)hashedHistoryFound)<<std::endl;
 }
 
 int main(int argc, char **argv)

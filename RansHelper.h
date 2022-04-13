@@ -152,13 +152,6 @@ class SymbolCounter
 {
 private:
   std::vector< uint32_t > _freq;
-  uint32_t freq(size_t symbol) const
-  {
-    if (symbol >= _freq.size())
-      return 1;
-    else
-      return _freq[symbol];
-  }
   void ensureAtLeast(size_t newSize)
   {
     if (newSize > _freq.size())
@@ -176,6 +169,13 @@ private:
     assert(false);
   }
 public:
+  uint32_t freq(size_t symbol) const
+  {
+    if (symbol >= _freq.size())
+      return 1;
+    else
+      return _freq[symbol];
+  }
   void increment(size_t symbol)
   {
     ensureAtLeast(symbol + 1);
@@ -186,6 +186,17 @@ public:
     // each block will always call increment some reasonable maximum number
     // of times.  Someone else is already calling reduceOld() at the end of
     // each block.
+    // NO -- The issue is not the max frequency of each item.  The issue
+    // is the total frequency that will we have to use as the denominator.
+    // TODO This class would be a great place to keep track of the total
+    // count in all of the entries, so we can automatically call reduceOld()
+    // when required.
+    // Issue:  This class was set up so you didn't have to state the maximum
+    // size in advance.  When we increment an item, we need to know the
+    // complete table size so we know the current denominator.  Right now we
+    // are fast and loose on the table size on purpose.  We probably need to
+    // set a max, or otherwise make sure that we do this consistently between
+    // the reader and the writer.
   }
   RansRange getRange(size_t symbol, size_t symbolCount) const
   {
