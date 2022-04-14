@@ -35,6 +35,30 @@ Then you send the items to the rANS encoder in reverse order.
 Then you start the new block.
 The reader doesn't know about reversing the order.
 
+### Style
+
+You can add an entropy encoder to a lot of data processing.
+Any time you get output from a program that doesn't divide nicely into bytes, e.g. a long list of numbers that go from 0 to 2, or from 0 to 259, an entropy encoder can help.
+
+Also, if you know the probability of each value, it's easy to send those values to an entropy encoder.
+The more extreme the values, the better results you will get.
+I.e. if you sent English text to an entropy encoder you'll get a lot of compression because `e` is common, and `z` is rare and `ñ` is very rare.
+
+But I'm mostly working in the other direction.
+_I know I'm going to have an entropy encoder, so I start thinking about how to predict the next item._
+The better I am at predicting things, the better my compression will be.
+Several of these programs will look at all possible bytes, and count how many of each we've seen so far, to to guess which byte will come next.
+`Analyze3.C` goes further and looks at the previous byte or two of context to make even better guesses.
+E.g. if the last byte was `q` there's a very good chance the next byte will be `u`.
+`Eight.C` and `HashDown.C` do the same basic thing but more of it.
+
+And I can try to reorganize the data.
+I know the entropy encoder does best when some items have a very high probability.
+`LZMW.C`, `LzBlock.C` and `LzStream.C` all reorganize the data into an MRU list.
+Asking for the most recently used item, or the second most recently used item, will happen much more often than asking for any specific item.
+
+`HashDown.C` goes looking for cases where it can make a high quality prediction.
+
 ## Analyze3.C
 This version of the code mostly copies bytes to the rANS encoder one at a time.
 ### Basic Context

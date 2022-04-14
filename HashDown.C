@@ -127,22 +127,20 @@ private:
     // we add to the left does one small operation and doesn't start fresh.
     // Then, if we're doing a hash of N bytes we get the hash for all the
     // smaller strings for free.
-    //
-    // TODO Change the hash so that a 1 byte string will always return that
-    // byte.  So when we look at one byte strings, we always get that byte
-    // back as the hash.  Otherwise our table with one byte of context
-    // looks terrible.
-    // OR There is a lot of wasted space it the table with one byte of
-    // contect.  And there always will be for text files.  Maybe we take
-    // the table of one byte context, and give it module of a prime near
-    // 128.  Then raise the max number of entries per hash.  So we could
-    // request the same amount of data, but hopefully a lot more of it will
-    // be in use.  So we'd exect better compression at the cost of more CPU
-    // time and more complicated code.  Intriguing.  This is worth a try
-    // just see!
     if (end - begin == 1)
-    {
+    { // Change the hash so that a 1 byte string will always return that
+      // byte.  So when we look at one byte strings, we always get that byte
+      // back as the hash.  Otherwise our table with one byte of context
+      // looks terrible.
       return *(uint8_t const *)begin;
+      // OR There is a lot of wasted space it the table with one byte of
+      // context.  And there always will be for text files.  Maybe we take
+      // the table of one byte context, and give it module of a prime near
+      // 128.  Then raise the max number of entries per hash.  So we could
+      // request the same amount of data, but hopefully a lot more of it will
+      // be in use.  So we'd expect better compression at the cost of more CPU
+      // time and more complicated code.  Intriguing.  This is worth a try
+      // just see!
     }
     else
     { // TODO This should be something that can be repeated on different
@@ -317,6 +315,8 @@ public:
       _overflowCount++;
       // TODO handle the overflow.  Divide eerything by 2.
       // DELETE ANYTHING that goes to 0.
+      // Note that we only have to divide the items that start with the
+      // same one byte of context, not the entire table
     }
     else
     {
@@ -449,39 +449,37 @@ void processFile(File &file)
   // The first one we try doesn't work in some contexts (so both the reader
   // and the writer know this) but when it does work, it works really well.
   // The last algorithm does the least compression but is always available.
-  // The middle algorithm is half way between.  If the first algorithm is
-  // available for a context, the second algorithm will also be available, but
-  // the converse is not always true.  So, based on the context there are three
-  // possibilities:  Only the last algorithm is available, only the last two
-  // are available, or all three are available.  SymbolCounter is good at this
-  // type of relationship!
-  //const ALGORITHM_ZERO_CONTEXT = 0;      // Always available.
-  //const ALGORITHM_ONE_BYTE_CONTEXT = 1;
-  //const ALGORITHM_MORE_CONTEXT = 2;      // Best choice when available.
-  //SymbolCounter algorithmCounter;
-  // On second thought, this might not be a perfect match.  SymbolCounter has
-  // a way to easily change the highest index.  But in the past we always used
-  // that to disable some very low probability items and give their
-  // probabilities back to the remaining items which already had higher
-  // probabilities.  This wasn't perfect but it worked well because it helped
-  // the items that needed it most, and it was sloppy with the items that
-  // matter the least.
+  // The middle algorithm is half way between.
   //
-  // This setup is different.  My preferred algorithm (AllHashHistory) gets
-  // picked a lot, almost always more than 50% of the time, so it is important.
-  // But it's the one that can disappear some times.  Using the above
-  // suggestion, the stats for the AllHashHistory would be wrong.  We'd be
-  // recording every time that we did or did not use AllHashHistory.  Instead
-  // we should only be recording the times when it was possible to use.
-  // I suspect that change will make a huge difference.  It seems like the
-  // hit ratio for AllHashHistory is very high, when it is available.
-  // Easy to test.  See hashedHistoryPossible and oneByteContextPossible
-  // below.  
+  // The basic idea is to try the algoriths in order.  Each time, start with
+  // the parts of the code that could be done on encoder and the decoder.
+  // Based on this we might choose to completely skip the algorithm.  Both
+  // sides agree so nothing has to be written to the file.
+  //
+  // If we try an algorithm, then we send a yes or no to the file to say if
+  // this algorithm actually worked!
+  //
+  // If we try and algorithm and it works, we are done.  The other algorithms
+  // are given a chance to review the latest data and update their tables.
+  // But they will not print anything to the file this time.
+  //
+  // If we skip an algorithm, or we try it and it fails, we go to the next
+  // algorithm.
   
   AllHashedHistory allHashedHistory;
+  // Number of times this algorithm said yes.
   int hashedHistoryFound = 0;
+  // Number of times this algorithm said yes or no.
   int hashedHistoryPossible = 0;
+  // If the answer is yes we send more details to the file.  This is the cost
+  // of that next write.  This value is typically very small.
   double hashedHistoryCostInBits = 0;
+  // How many items were we choosing from?  Most of the time it's just one
+  // item, which is why hashedHistoryCostInBits is typically so low.  There
+  // is a proposal in README.md to tweak the algorithm so this algorithm can
+  // only recommend one byte.  Either the next byte matches our prediction or
+  // it does not.  So hashedHistoryCostInBits would be exactly 0 and
+  // totalInCharCounter would be exactly hashedHistoryPossible.
   int64_t totalInCharCounter = 0;
   
   OneByteContext oneByteContext;
@@ -539,8 +537,10 @@ void processFile(File &file)
 	std::map<char, int> counts = oneByteContext.getCounts(nextBytePtr);
 	for (auto const &kvp : counts)
 	{
-	  // TODO skip everything in exclude!
-	  denominator += kvp.second;
+	  if (!exclude.count(kvp.first))
+	  { // Skip everything in exclude!
+	    denominator += kvp.second;
+	  }
 	}
 	if (denominator > 0)
 	{ // At this point both sides know that we have the option of using
