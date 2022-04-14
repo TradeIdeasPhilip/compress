@@ -289,6 +289,41 @@ But if it points to the same next byte as the 7 byte context, it will be useless
 
 Somewhere around 2 bytes of context we actually start looking for multiple answers instead of just the most recent one.
 
+#### A Different Perspective
+
+We have a magic oracle named eightBytesOfContext.
+Some times the oracle is silent.
+He says nothing.
+There is no cost in the compressed file, but nothing was gained, either.
+Other times the oracle will say there is a very high chance this one particular byte will be next.
+Values vary from 65% for source code to around 95% for some really redundant log files.
+
+This is a powerful guess.
+There are 255 other bytes that could be in this place.
+When the oracle chooses to make a bet, it's usually way up there, above 50%.
+When the oracle is wrong, so what, we still know how to weight the remaining possibilities.
+And we remove this byte from contention.
+There is no redundancy.
+There were no gimmicks or trade offs.
+I found a byte that I had a really good feeling about, and the statistics say it's legit.
+When I'm right I can write this entire byte using less than one bit.
+Take that Huffman coding!
+
+I separate this method from any other ways of setting the probability for this number.
+In the past I tried to look at a lot of different sources, and give them all appropriate weights, and average them all out.
+Now it appears that this is such a strong signal that we don't care about anything else.
+This oracle gives us probabilities like 65-95%.
+For comparison, if you're looking at English text with no punctuation or spaces, all caps, `E` is the most common letter with only 11% probability.
+My point is that the rest is too small to care about compared to the suggestion of the oracle.
+
+We actually have multiple oracles.
+If the 8 byte context oracle doesn't answer our question, maybe the 7 byte context oracle can step in.
+Same exact rules.
+If none of the oracles jumps in, then we switch to more traditional methods, like counting the total number of times we've seen each byte, and adding 1 to make sure nothing has a probability of 0.
+
+We keep a running tab of how well each oracle does for this file.
+We use that to set the probabilities.
+
 ### And Copy Big Blocks
 
 I was trying to avoid looking through the entire sliding window.
