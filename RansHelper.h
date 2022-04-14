@@ -19,6 +19,22 @@ inline double pCostInBits(double ratio)
   return -std::log2(ratio);
 }
 
+// What is the average cost of a boolean decision when ratio is the chance
+// of getting one of the answers?  (It doesn't matter if it's true/total or
+// false/total, the cost is the same.)  Measured in bits.
+inline double booleanCostInBits(double ratio)
+{
+  if ((ratio == 0) || (ratio == 1))
+  {
+    return 0;
+  }
+  else
+  {
+    const double altRatio = 1 - ratio;
+    return ratio * pCostInBits(ratio) + altRatio * pCostInBits(altRatio);
+  }
+}
+
 /* The RansRange class is a convenient way to translate between arbitrary
  * fractions (like the actual number of times we've seen this symbol / the
  * actual number of times we've seen any symbol) and fractions that rANS likes

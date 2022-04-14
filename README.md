@@ -236,3 +236,69 @@ As of 12/29/2020 I'm typically getting a percent or two better than gzip on vari
 I'm in the process of writing a complete version of the compress and decompress programs.
 The decompress program needs a lot of details to keep up with the compress program.
 So I can't fake as much; I need to fill in more details of the compress program or the decompress program will never work.
+
+## HashDown.C
+
+This is an interesting twist on the basic ideas behind `Eight.C`.
+I'm still looking for the last time we saw this same context.
+But instead of looking through the last n bytes of the file,
+I'm storing the most recent hit in a hash table.
+The hash table was intended to make the lookup must faster.
+
+The hashes allowed us to store a lot of possible context values in a fixed amount of space.
+If two contexts share the same hash, one might kick the other out of the table.
+It's arbitrary but it's simple.
+
+On the down side, the performance never really materialized.
+It seem like it will be faster just to search the last n bytes of the file.
+Like `Eight.C`.
+
+On the good side, I am seeing some interesting results.
+Almost every time the new hash tables find something, it's unique and it's a match.
+I'm still optimizing things, but the compression is competitive.
+
+### Further research
+
+I have the ability to keep multiple items per hash
+(optimized for small numbers like 3)
+but these usually all point to the same next byte.
+This gets more true as the length of the context goes up.
+I want to do some tests, but I bet that memory would be better served with just one entry per hash, but 3× as many hashes.
+
+### Back to Eight.C
+
+I'm tempted to roll some of these ideas back into `Eight.C`.
+
+We still walk through the entire sliding window, rather than trying to build a hash table describing recent occurrences.
+But maybe, instead of looking at all of the times when we had the same n bytes of context, we only look at the last time.
+Recent results suggest that we can get the right answer most of the time with just the most recent result.
+While going backwards through the file we would have the option to stop short after finding a good match.
+
+Also, this gives a simple, high probability answer.
+If we find a context match with 7 bytes, then we check if the next byte also matches.
+We send a Boolean to the stream to say yes or no.
+This should be skewed way far from 50% - 50%, so it should be cheap.
+And it's usually accurate, so we're done with this byte and we can move on, probably after sending less than one bit to the stream.
+
+We don't have to do 8 of these in a row.
+Maybe we couldn't find an 8 byte context match.
+Both sides know this, so it's not even a question.
+Then we send a no, the 7 byte context match was not helpful.
+We know that there must be a 6 byte context match.
+But if it points to the same next byte as the 7 byte context, it will be useless, so we skip it.
+
+Somewhere around 2 bytes of context we actually start looking for multiple answers instead of just the most recent one.
+
+### And Copy Big Blocks
+
+I was trying to avoid looking through the entire sliding window.
+But it seems like that's going to be part of the algorithm.
+
+In some cases gzip/deflate always wins.
+It's good when there are large blocks of identical data.
+My alternatives could never compete with deflate in those cases.
+
+Here's a twist.
+Do deflate-style compression, but only when the copied string is at least 8 bytes long.
+For shorter strings, we use the byte by byte guessing that this program and `Eight.C` do so well.
+The best of both worlds.

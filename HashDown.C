@@ -153,31 +153,6 @@ private:
       // The Java string hash function is very simple.
       return std::_Hash_impl::hash(begin, end - begin);
     }
-
-    // This really sucks:
-    /*
-    uint64_t result = 0;
-    while (end - begin >= 8)
-    {
-      result += *(uint64_t const *)begin;
-      begin += 8;
-    }
-    if (end - begin >= 4)
-    {
-      result += (*(uint32_t const *)begin)<<30;
-      begin += 4;
-    }
-    if (end - begin >= 2)
-    {
-      result += (*(uint16_t const *)begin)<<11;
-      begin += 2;
-    }
-    if (end - begin >= 1)
-    {
-      result += *(uint8_t const *)begin;
-    }
-    return result;
-    */
   }
   size_t hash(char const *end)
   {
@@ -375,6 +350,15 @@ public:
       out<<context<<' '<<suggestion<<" => "<<count<<std::endl;
     }
   }
+  void shortDump(std::ostream &out)
+  {
+    if (_overflowCount)
+    {
+      out<<"One byte of context:  _overflowCount = "<<_overflowCount
+	 <<std::endl;
+    }
+  }
+  
   void detailedDump(std::ostream &out)
   {
     out<<"_______________ One byte of context ____________________"<<std::endl
@@ -421,7 +405,8 @@ public:
   }
   ~OneByteContext()
   {
-    detailedDump(std::cout);
+    //detailedDump(std::cout);
+    shortDump(std::cout);
   }
 };
 
@@ -460,14 +445,48 @@ public:
 };
 
 void processFile(File &file)
-{
+{ // We have three different algorithms for compressing the data.
+  // The first one we try doesn't work in some contexts (so both the reader
+  // and the writer know this) but when it does work, it works really well.
+  // The last algorithm does the least compression but is always available.
+  // The middle algorithm is half way between.  If the first algorithm is
+  // available for a context, the second algorithm will also be available, but
+  // the converse is not always true.  So, based on the context there are three
+  // possibilities:  Only the last algorithm is available, only the last two
+  // are available, or all three are available.  SymbolCounter is good at this
+  // type of relationship!
+  //const ALGORITHM_ZERO_CONTEXT = 0;      // Always available.
+  //const ALGORITHM_ONE_BYTE_CONTEXT = 1;
+  //const ALGORITHM_MORE_CONTEXT = 2;      // Best choice when available.
+  //SymbolCounter algorithmCounter;
+  // On second thought, this might not be a perfect match.  SymbolCounter has
+  // a way to easily change the highest index.  But in the past we always used
+  // that to disable some very low probability items and give their
+  // probabilities back to the remaining items which already had higher
+  // probabilities.  This wasn't perfect but it worked well because it helped
+  // the items that needed it most, and it was sloppy with the items that
+  // matter the least.
+  //
+  // This setup is different.  My preferred algorithm (AllHashHistory) gets
+  // picked a lot, almost always more than 50% of the time, so it is important.
+  // But it's the one that can disappear some times.  Using the above
+  // suggestion, the stats for the AllHashHistory would be wrong.  We'd be
+  // recording every time that we did or did not use AllHashHistory.  Instead
+  // we should only be recording the times when it was possible to use.
+  // I suspect that change will make a huge difference.  It seems like the
+  // hit ratio for AllHashHistory is very high, when it is available.
+  // Easy to test.  See hashedHistoryPossible and oneByteContextPossible
+  // below.  
+  
   AllHashedHistory allHashedHistory;
   int hashedHistoryFound = 0;
+  int hashedHistoryPossible = 0;
   double hashedHistoryCostInBits = 0;
   int64_t totalInCharCounter = 0;
   
   OneByteContext oneByteContext;
   int oneByteContextFound = 0;
+  int oneByteContextPossible = 0;
   double oneByteContextCostInBits = 0;
 
   for (unsigned int i = 0; i < file.size(); i++)
@@ -479,6 +498,16 @@ void processFile(File &file)
       CharCounter charCounter;
       int denominator;
       allHashedHistory.getStats(file, i, charCounter, denominator);
+      if (denominator > 0)
+      { // This is the part that the encoder and decoder share, so it must be
+	// done first. (hashedHistoryFound / hashedHistoryPossible) is what
+	// we have to send to the entropy encoder to say that we did or did
+	// not plan to use this algorithm.  If denominator was 0 then both
+	// sides would know that we would *never* use the first algorithm,
+	// so there's no decision to record here.  hashedHistoryPossible is
+	// the number of decisions we had to make and record.
+	hashedHistoryPossible++;
+      }
       const int numerator = charCounter[*nextBytePtr];
       if (numerator != 0)
       {
@@ -506,7 +535,20 @@ void processFile(File &file)
       // attempt doesn't work as well as I'd expect.  Take a closer look.
       if (i > 0)
       {
+	uint64_t denominator = 0;
 	std::map<char, int> counts = oneByteContext.getCounts(nextBytePtr);
+	for (auto const &kvp : counts)
+	{
+	  // TODO skip everything in exclude!
+	  denominator += kvp.second;
+	}
+	if (denominator > 0)
+	{ // At this point both sides know that we have the option of using
+	  // the OneByteContext or the ZeroByteContext.  So the encoder will
+	  // have to make a decision and record that decision in the output
+	  // file.
+	  oneByteContextPossible++;
+	}
 	const int numerator = counts[*nextBytePtr];
 	if (numerator == 0)
 	{
@@ -522,12 +564,6 @@ void processFile(File &file)
 	else
 	{
 	  encoded = true;
-	  uint64_t denominator = 0;
-	  for (auto const &kvp : counts)
-	  {
-	    // TODO skip everything in exclude!
-	    denominator += kvp.second;
-	  }
 	  assert(denominator < RansRange::SCALE_END);
 	  const double cost = pCostInBits(numerator / (double)denominator);
 	  oneByteContextFound++;
@@ -539,17 +575,13 @@ void processFile(File &file)
     {
       oneByteContext.add(nextBytePtr);
     }
-    static int debugCounter = 0;
-    if (debugCounter < 10)
-    {
-      debugCounter++;
-      std::cout<<"i = "<<i<<std::endl;
-      oneByteContext.superDetailedDump(std::cout);
-    }
 	
     if (!encoded)
     {
       // TODO
+      // For the estimated cost I'm just assuming that I'll send a normal 8
+      // bit byte.  I'm sure I could do better, but there aren't a lot of
+      // these so I don't want to optimize here.
     }
     
   }
@@ -559,11 +591,39 @@ void processFile(File &file)
   std::cout<<"OneByteContext bytes encoded: "<<oneByteContextFound
 	   <<", afterEncoding: "
 	   <<(oneByteContextCostInBits/8)<<std::endl;
+  const int bytesSkipped =
+    file.size() - hashedHistoryFound - oneByteContextFound;
   std::cout<<"Bytes skipped (TODO!): "
-	   <<(file.size() - hashedHistoryFound - oneByteContextFound)
+	   <<bytesSkipped
 	   <<std::endl;
   std::cout<<"Average size() of CharCounter (AllHashedHistory):"
 	   <<(totalInCharCounter/(double)hashedHistoryFound)<<std::endl;
+  const double allHashedHistoryRatio =
+    hashedHistoryFound / (double)hashedHistoryPossible;
+  const double allHashedHistoryQuestionCost =
+    booleanCostInBits(allHashedHistoryRatio) * hashedHistoryPossible;
+  std::cout<<"AllHashedHistory decisions: "<<hashedHistoryFound<<" / "
+	   <<hashedHistoryPossible<<" = "
+	   <<allHashedHistoryRatio
+	   <<", cost = "<<allHashedHistoryQuestionCost<<" bits"
+	   <<std::endl;
+  const double oneByteHistoryRatio =
+    oneByteContextFound / (double)oneByteContextPossible;
+  const double oneByteHistoryQuestionCost =
+    booleanCostInBits(oneByteHistoryRatio) * oneByteContextPossible;
+  std::cout<<"OneByteHistory decisions: "<<oneByteContextFound<<" / "
+	   <<oneByteContextPossible<<" = "
+           <<oneByteHistoryRatio
+	   <<", cost = "<<oneByteHistoryQuestionCost<<" bits"
+	   <<std::endl;
+  const double totalCost = ceil((allHashedHistoryQuestionCost+hashedHistoryCostInBits+oneByteHistoryQuestionCost+oneByteContextCostInBits)/8+bytesSkipped);
+  std::cout<<"Total cost = ("<<allHashedHistoryQuestionCost<<" / 8) + "
+	   <<(hashedHistoryCostInBits/8)<<" + ("
+	   <<oneByteHistoryQuestionCost<<" / 8) + "
+	   <<(oneByteContextCostInBits/8)<<" + "<<bytesSkipped<<" = "
+	   <<totalCost<<std::endl
+	   <<"Total savings = "<<((1-totalCost/file.size())*100)<<"%"
+	   <<std::endl;
 }
 
 int main(int argc, char **argv)
