@@ -57,7 +57,8 @@ I know the entropy encoder does best when some items have a very high probabilit
 `LZMW.C`, `LzBlock.C` and `LzStream.C` all reorganize the data into an MRU list.
 Asking for the most recently used item, or the second most recently used item, will happen much more often than asking for any specific item.
 
-`HashDown.C` goes looking for cases where it can make a high quality prediction.
+`HashDown.C` takes a different approach, but it's doing the same thing.
+It looks for cases where it can make a high quality prediction.
 
 ## Analyze3.C
 This version of the code mostly copies bytes to the rANS encoder one at a time.
