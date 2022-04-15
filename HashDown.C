@@ -8,7 +8,7 @@
 #include "RansHelper.h"
 
 
-// g++ -o hash-down -O4 -ggdb -std=c++0x -Wall -lexplain HashDown.C File.C
+// g++ -o hash-down -O4 -ggdb -std=c++0x -Wall -lexplain HashDown.C File.C Misc.C
 
 // New idea:  Use a hash table to organize the old data.  So we don't
 // have to wade through a lot of historical data.  A hash will take us
@@ -296,11 +296,48 @@ public:
   }
 };
 
+
+class MicroProfiler
+{
+private:
+  int64_t _time;
+  int _count = 0;
+public:
+  MicroProfiler() : _time(0), _count(0) { }
+  int64_t getTime() const { return _time; }
+  int getCount() const { return _count; }
+  class Run
+  {
+  private:
+    MicroProfiler &_owner;
+  public:
+    Run(MicroProfiler &owner) :
+      _owner(owner)
+    {
+      _owner._time -= getMicroTime();
+    }
+    ~Run()
+    {
+      _owner._time += getMicroTime();
+      _owner._count++;
+    }
+  };
+  void report(std::ostream &out, std::string const &name)
+  {
+    out<<name<<":  "<<(_time/1000000.0)<<"s / "<<_count<<" = "
+       <<(_time / (double)_count)<<"μs each."
+       <<std::endl;
+  }
+};
+
+
 class OneByteContext
 {
 private:
   std::map<uint16_t, uint16_t> _counters;
   int _overflowCount;
+  MicroProfiler _profiler;
+  
 public:
   int bytesOfHistory() const { return 1; }
   OneByteContext() : _overflowCount(0) { }
@@ -309,6 +346,7 @@ public:
     const uint8_t context = *(newChar - 1);
     const uint8_t suggestion = *newChar;
     const uint16_t key = (context<<8) | suggestion;
+    MicroProfiler::Run mp(_profiler);
     uint16_t &counter = _counters[key];
     if (counter == 0xffff)
     { 
@@ -357,6 +395,9 @@ public:
       out<<"One byte of context:  _overflowCount = "<<_overflowCount
 	 <<std::endl;
     }
+    out<<"A total of "<<_counters.size()
+       <<" entries in OneByteContext::_counters"<<std::endl;
+    _profiler.report(out, "OneByteContext table access");
   }
   
   void detailedDump(std::ostream &out)

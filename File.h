@@ -3,23 +3,8 @@
 
 #include <string>
 
+#include "Misc.h"
 
-// Value is always computed.  We also call assert(value) if assertions are
-// enabled.  Value is discarded either way.  You do not get a warning either
-// way.  This is useful when (a) a function has a side effect (b) the function
-// returns true on success, and (c) failure seems unlikely, but we still want
-// to check sometimes.
-template < class T >
-void assertTrue(T const &value)
-{
-  assert(value);
-}
-
-template < class T >
-void assertFalse(T const &value)
-{ 
-  assert(!value);
-}
 
 // For simpliciy and performance, use mmap() to read the entire file into
 // memory.  This implementation is lacking a few things.  We can't handle

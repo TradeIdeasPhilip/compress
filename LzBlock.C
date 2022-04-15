@@ -20,6 +20,8 @@
 #include <climits>
 #include <iomanip>
 
+#include "Misc.h"
+
 #include "LzBlockShared.h"
 
 /* Overview:
@@ -190,38 +192,12 @@
  * unmanageable for large files.  This should be a compromise between the
  * two approaches.  */
 
-// Production:  g++ -o lz_bcompress -O4 -ggdb -std=c++14 LzBlock.C
-// Profiler:  g++ -o lz_bcompress -O2 -pg -ggdb -std=c++14 LzBlock.C
+// Production:  g++ -o lz_bcompress -O4 -ggdb -std=c++14 LzBlock.C Misc.C
+// Profiler:  g++ -o lz_bcompress -O2 -pg -ggdb -std=c++14 LzBlock.C Misc.C
 //            gprof ./lz_bcompress gmon.out > analysis.txt
 
 
 
-// Value is always computed.  We also call assert(value) if assertions are
-// enabled.  Value is discarded either way.  You do not get a warning either
-// way.  This is useful when (a) a function has a side effect (b) the function
-// returns true on success, and (c) failure seems unlikely, but we still want
-// to check sometimes.
-template < class T >
-void assertTrue(T const &value)
-{
-  assert(value);
-}
-
-template < class T >
-void assertFalse(T const &value)
-{
-  assert(!value);
-}
-
-int64_t getMicroTime()
-{
-  timeval inPieces;
-  assertFalse(gettimeofday(&inPieces, NULL));
-  int64_t result = inPieces.tv_sec;
-  result *= 1000000;
-  result += inPieces.tv_usec;
-  return result;
-}
 
 class StopWatch
 {
