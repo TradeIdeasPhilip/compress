@@ -257,13 +257,13 @@ public:
   AllHashedHistory()
   {
     _data.reserve(7);
-    _data.emplace_back(2, 257);
-    _data.emplace_back(3, 263);
-    _data.emplace_back(4, 269);
-    _data.emplace_back(5, 271);
-    _data.emplace_back(6, 277);
-    _data.emplace_back(7, 281);
-    _data.emplace_back(8, 283);
+    _data.emplace_back(2, 751, 1);
+    _data.emplace_back(3, 757, 1);
+    _data.emplace_back(4, 761, 1);
+    _data.emplace_back(5, 769, 1);
+    _data.emplace_back(6, 773, 1);
+    _data.emplace_back(7, 787, 1);
+    _data.emplace_back(8, 797, 1);
   }
   void add(File const &file, int index)
   {
@@ -351,7 +351,7 @@ public:
     if (counter == 0xffff)
     { 
       _overflowCount++;
-      // TODO handle the overflow.  Divide eerything by 2.
+      // TODO handle the overflow.  Divide everything by 2.
       // DELETE ANYTHING that goes to 0.
       // Note that we only have to divide the items that start with the
       // same one byte of context, not the entire table
