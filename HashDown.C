@@ -334,6 +334,17 @@ public:
 class OneByteContext
 {
 private:
+  class Range
+  {
+  public:
+    const uint16_t start;
+    const uint16_t max;
+    Range(char const *end) :
+      start(((uint16_t)*(end-1))<<8),
+      max(start | 0xff)
+    { }
+  };
+  
   std::map<uint16_t, uint16_t> _counters;
   int _overflowCount;
   MicroProfiler _profiler;
@@ -347,18 +358,27 @@ public:
     const uint8_t suggestion = *newChar;
     const uint16_t key = (context<<8) | suggestion;
     MicroProfiler::Run mp(_profiler);
-    uint16_t &counter = _counters[key];
+    const uint16_t counter = ++_counters[key];
     if (counter == 0xffff)
     { 
       _overflowCount++;
-      // TODO handle the overflow.  Divide everything by 2.
-      // DELETE ANYTHING that goes to 0.
-      // Note that we only have to divide the items that start with the
-      // same one byte of context, not the entire table
-    }
-    else
-    {
-      counter++;
+      Range range(newChar);
+      for (auto it = _counters.lower_bound(range.start);
+	   (it != _counters.end()) && (it->first <= range.max);
+	   )
+      {
+	const uint16_t after = (it->second /= 2);
+	std::cout<<"Reduced "<<((char)(it->first>>8))<<" "<<((char)(it->first))
+		 <<" "<<after<<std::endl;
+	if (after)
+	{ // Leave what's left and move to the next one.
+	  it++;
+	}
+	else
+	{ // Remove the pointer to 0, and move to the next one.
+	  it = _counters.erase(it);
+	}
+      }
     }
   }
 
@@ -367,10 +387,9 @@ public:
   std::map<char, int> getCounts(char const *end)
   {
     std::map<char, int> result;
-    const uint16_t start = ((uint16_t)*(end-1))<<8;
-    const uint16_t max = start | 0xff;
-    for (auto it = _counters.lower_bound(start);
-	 (it != _counters.end()) && (it->first <= max);
+    Range range(end);
+    for (auto it = _counters.lower_bound(range.start);
+	 (it != _counters.end()) && (it->first <= range.max);
 	 it++)
     {
       result[it->first] = it->second; 
