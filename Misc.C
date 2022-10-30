@@ -14,3 +14,37 @@ int64_t getMicroTime()
 }
 
 
+uint64_t simpleHash(char const *start)
+{
+  return simpleHash(start, strlen(start));
+}
+
+uint64_t simpleHash(char const *start, size_t length)
+{
+  return simpleHash(start, start + length);
+}
+
+uint64_t simpleHash(char const *start, char const *end)
+{ // This was inspired by the standard Java string hash, but it uses 64 bit integers because it can.
+  uint64_t result = 0x123456789abcdef0;
+  uint64_t factor = 1;
+  while (end > start)
+  {
+    end--;
+    result += (*end) * factor;
+    factor *= 31;
+  }
+  return result;
+}
+
+uint64_t simpleHash(std::string const &string)
+{
+  return simpleHash(string.c_str(), string.length());
+}
+
+std::string errorString()
+{
+  char buffer[256];
+  buffer[0] = 0;
+  return buffer;
+}

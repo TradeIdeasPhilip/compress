@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <assert.h>
+#include <string>
 
 
 // Value is always computed.  We also call assert(value) if assertions are
@@ -31,5 +32,22 @@ void assertFalse(T const &value)
 int64_t getMicroTime();
 
 
+/////////////////////////////////////////////////////////////////////
+// A standard hash function that will be the same on different
+// platforms.
+/////////////////////////////////////////////////////////////////////
+
+uint64_t simpleHash(char const *start);
+uint64_t simpleHash(char const *start, size_t length);
+uint64_t simpleHash(char const *start, char const *end);
+uint64_t simpleHash(std::string const &string);
+
+
+/////////////////////////////////////////////////////////////////////
+// A wrapper around a C style library to make it more C++ friendly.
+// See the man pages for strerror_r() and errno for more info.
+/////////////////////////////////////////////////////////////////////
+
+std::string errorString();
 
 #endif
