@@ -2,6 +2,7 @@
   "files.associations": {
     "HashDown.C": "cpp",
     "Misc.C": "cpp",
-    "File.C": "cpp"
+    "File.C": "cpp",
+    "4p.C": "cpp"
   }
 }
