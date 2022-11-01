@@ -4,5 +4,9 @@
     "Misc.C": "cpp",
     "File.C": "cpp",
     "4p.C": "cpp"
-  }
+  },
+  "cSpell.words": [
+    "ggdb",
+    "Rans"
+  ]
 }

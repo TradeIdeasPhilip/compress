@@ -32,7 +32,7 @@ uint64_t simpleHash(char const *start, char const *end)
   {
     end--;
     result += (*end) * factor;
-    factor *= 31;
+    factor *= 65551;  // 0x1000F, prime!
   }
   return result;
 }
