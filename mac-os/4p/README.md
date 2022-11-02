@@ -55,27 +55,13 @@ This case is relatively rare and it would be better to have a simple catchall ro
 
 # Current status
 
-I have a prototype that looks at a file and does only the hashing step described in Medium Strings.
-It cycles over different values for `hashBufferSize`, the number of hashed entries to save, and `hashEntrySize`, the size of each string that we save.
+I have a prototype that looks at a file and does only the hashing step described in Medium Strings, along with part of the sliding window step described in Long Strings.
 
-My compression results are not great, but they are impressive for something with such a small scope.
-The question is how do these results compare to some of the other algorithms I've tried, with respect to strings of length 4-6 bytes.
+The compression results are not currently accurate.  
+Some parts of the code only present notes to the output and don't record the cost yet.
 
-I'm getting the best results with a buffer size near 4k and a collection of all 4, 5, and 6 byte strings all in the same buffer.
+This is the first release where the VS Code debugger works.
+(Make sure you run from the debug menu on the left of the screen, not the debug icon you see in the top right corner when viewing a *.C file.)
 
-When I compressed `4p.C` (the source code) my algorithm removed 54.8295% of the size, compared to gzip removing 76.7% of the size.
-```
-processFileRange() fileSize=10146, hashBufferSize=4105, hashEntrySize=4-6, hashEntries=1491, simpleHashCodeCostInBits=17105, betterHashCodeCostInBits=14960.7, individualBytes=2245, totalCostInBytes=4583, savings=54.8295%
-```
-
-When I compressed `4p` (the compiled executable) my algorithm removed 61.3914% of the file size, compared to gzip removing 76.4%.
-
-```
-processFileRange() fileSize=45135, hashBufferSize=4105, hashEntrySize=4-6, hashEntries=6060, simpleHashCodeCostInBits=72720, betterHashCodeCostInBits=36609.1, individualBytes=10748, totalCostInBytes=17426, savings=61.3914%
-```
-
-If I only look at the parts of the file that were actually compressed, the source file gave me 70.41% savings and the object file gave me 80.58% savings.
-The idea is that other parts of the file will use other compression methods.
-If those methods are similarly effective, then we could get that type of savings for the entire file.
-
-Notice that the betterHashCodeCostInBits (compressing the index numbers) saves over 50% in the binary file, but only about 12½% for the text file.
+There is a bug in this code.
+The debugger is all queued up to show you where the code crashes.

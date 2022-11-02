@@ -120,7 +120,7 @@ public:
   uint32_t start() const { return _start; }
   uint32_t freq() const { return _freq; }
 
-  // Call the corresponding funtion in the rANS library.
+  // Call the corresponding function in the rANS library.
   void put(Rans64State* r, uint32_t** pptr) const
   {
     Rans64EncPut(r, pptr, _start, _freq, SCALE_BITS);
@@ -245,7 +245,7 @@ public:
       f = (f + 1) / 2;
     // It's tempting to remove some dead weight from the end of the list.
     // If there are extra 1's at the end, we could delete them and return the
-    // memory.  Probably a small savingings in memory, not worth the cost.
+    // memory.  Probably a small savings in memory, not worth the cost.
   }
 
   // For debug use only.

@@ -362,3 +362,14 @@ Here's a twist.
 Do deflate-style compression, but only when the copied string is at least 8 bytes long.
 For shorter strings, we use the byte by byte guessing that this program and `Eight.C` do so well.
 The best of both worlds.
+
+## 4p.C
+
+"4 possibilities" or "4 processes".
+
+I'm trying 4 different algorithms to do the compression.
+This is not the first time I've tried to mix different algorithms.
+But after working on HashDown.C I finally understood how the different algorithms each worked better for some things and worse for others.
+
+This is my first C++ project to work on the Mac with VS Code.
+The other programs in this repository were written for a Linux environment with EMACS.

@@ -355,7 +355,6 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
       individualBytes++;
     }
   }
-  //std::cout<<"HERE A"<<std::endl;
   std::map<int, int> hashBufferLengths;
   for (std::string const &hashEntry : hashBuffer)
   {

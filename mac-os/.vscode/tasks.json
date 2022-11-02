@@ -2,16 +2,19 @@
   "tasks": [
     {
       "type": "cppbuild",
-      "label": "C/C++: g++ build active file",
-      "command": "/usr/bin/g++",
+      "label": "C/C++: clang++ build active file",
+      "command": "/usr/bin/clang++",
       "args": [
-        "-fdiagnostics-color=always",
+        "-fcolor-diagnostics",
+        "-fansi-escape-codes",
         "-g",
-        "${file}",
+        "4p.C",
+        "../shared/File.C",
+        "../shared/Misc.C",
         "-std=c++0x",
         "-Wall", 
         "-o",
-        "${fileDirname}/${fileBasenameNoExtension}"
+        "${fileDirname}/4p"
       ],
       "options": {
         "cwd": "${fileDirname}"
