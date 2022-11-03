@@ -38,7 +38,7 @@ private:
   std::map<int, int> _counts;
 
 public:
-  HashListCounter() : _sourceBytesEncoded(0), _costInBits(0.0),  _totalCount(0.0) {}
+  HashListCounter() : _sourceBytesEncoded(0), _costInBits(0.0), _totalCount(0.0) {}
 
   // Call this any time we write to an index.
   // Before the first call to write to an index you can't try to read from that index.
@@ -95,6 +95,51 @@ public:
   // How much of the input were we able to compress.
   int sourceBytesEncoded() const { return _sourceBytesEncoded; }
 };
+
+// https://en.wikipedia.org/wiki/ANSI_escape_code
+// All of these work in the standard mac terminal window.
+// Blink does not work in the terminal integrated into VS Code.
+// Nothing works when debugging in VS Code.  (DEBUG CONSOLE tab)
+static char const *ansiStart = "\x1b[31;105m";
+static char const *ansiReset = "\x1b[39;49;25m";
+static char const *ansiBlink = "\x1b[5m";
+static char const *ansiYellow1 = "\x1b[93;100m";
+static char const *ansiYellow2 = "\x1b[90;103m";
+static char const *ansiBlue1 = "\x1b[37;44m";
+static char const *ansiBlue2 = "\x1b[34;47m";
+
+class AlternateColors
+{
+private:
+  char const *const _first;
+  char const *const _second;
+  char const *_last;
+
+public:
+  AlternateColors(char const *first, char const *second) : _first(first), _second(second), _last(second) {}
+  char const *next()
+  {
+    if (_last == _first)
+    {
+      _last = _second;
+    }
+    else
+    {
+      _last = _first;
+    }
+    return _last;
+  }
+  static AlternateColors yellow;
+  static AlternateColors blue;
+};
+
+AlternateColors AlternateColors::yellow(ansiYellow1, ansiYellow2);
+AlternateColors AlternateColors::blue(ansiBlue1, ansiBlue2);
+
+//Only true for debug and development!  This prints the entire
+// input file, and uses colors to show which text was compressed with 
+// which algorithm.
+bool echoAllInput = true;
 
 /**
  * This class is responsible for "sliding window" or LZ77 style of compression.
@@ -156,7 +201,7 @@ public:
     _attempts++;
     char const *bestStart = NULL;
     int bestLength = 8;
-    const auto bytesOfHistory = std::min((size_t)10000, (size_t)(startOfUncompressed - _input.begin()));
+    const auto bytesOfHistory = std::min((size_t)20000, (size_t)(startOfUncompressed - _input.begin()));
     // std::cout<<"bytesOfHistory="<<bytesOfHistory<<std::endl;
     for (char const *possibleMatch = startOfUncompressed - bytesOfHistory; possibleMatch < startOfUncompressed - 1; possibleMatch++)
     { // Should be break out of this loop early if there isn't enough space before the end of the file for a match?
@@ -177,15 +222,23 @@ public:
     else
     {
       const bool selfReferencing = bestLength + bestStart > startOfUncompressed;
-      std::cout << "SW back=" << (startOfUncompressed - bestStart) << ", len=" << bestLength;
+      // std::cout << "SW back="<<AlternateColors::yellow.next() << (startOfUncompressed - bestStart) << ansiReset<< ", len=" << AlternateColors::blue.next()<< bestLength<<ansiReset;
       if (selfReferencing)
       {
         _selfReferences++;
-        std::cout << " selfReferencing";
+        // std::cout << " selfReferencing";
       }
       //<<", body=❝"<<std::string(bestStart, bestLength)
       //<<", startOfUncompressed=❝"<<std::string(startOfUncompressed, 3)<<"❞"
-      std::cout << std::endl;
+      // std::cout << std::endl;
+      if (echoAllInput)
+      {
+        if (selfReferencing)
+        {
+          std::cout<<ansiBlink;
+        }
+        std::cout << AlternateColors::blue.next() << std::string(bestStart, bestLength) << ansiReset;
+      }
       _successes++;
       _bytesCompressed += bestLength;
       startOfUncompressed += bestLength;
@@ -207,96 +260,6 @@ public:
         << ", _costInBits=" << _costInBits << ")";
   }
 };
-
-/** Obsolete?  See processFileRange() which offers a superset of functionality and better performance. */
-void processFile(File &file, int hashBufferSize, int hashEntrySize)
-{
-  HashListCounter hashListCounter;
-  // std::cout<<"processFile()"<<std::endl;
-  size_t individualBytes = 0;
-  size_t hashEntries = 0;
-  std::vector<std::string> hashBuffer(hashBufferSize);
-  auto current = file.begin();
-  auto const recordNewHash = [&]()
-  {
-    if ((current - file.begin()) >= hashEntrySize)
-    {
-      const std::string newEntry(current - hashEntrySize, hashEntrySize);
-      const int index = simpleHash(newEntry) % hashBufferSize;
-      hashBuffer[index] = newEntry;
-      hashListCounter.save(index);
-    }
-  };
-  while (current < file.end())
-  {
-    bool madeProgress = false;
-    if ((file.end() - current) >= hashEntrySize)
-    {
-      // std::cout<<"AAAAA"<<std::endl;
-      const std::string possibleEntry(current, hashEntrySize);
-      // std::cout<<"possibleEntry="<<possibleEntry<<std::endl;
-      const int index = simpleHash(possibleEntry) % hashBufferSize;
-      // std::cout<<"possibleEntry="<<possibleEntry<<", index="<<index<<""
-      if (hashBuffer[index] == possibleEntry)
-      {
-        madeProgress = true;
-        current += hashEntrySize;
-        hashEntries++;
-        // std::cout<<"hash entry:  "<<possibleEntry<<std::endl;
-        hashListCounter.use(index);
-      }
-    }
-    if (!madeProgress)
-    {
-      // std::cout<<"individual byte:  "<<*current<<std::endl;
-      current++;
-      recordNewHash();
-      individualBytes++;
-    }
-  }
-  int hashBufferFree = 0;
-  // std::cout<<"hashBuffer:";
-  for (std::string const &hashEntry : hashBuffer)
-  {
-    if (hashEntry == "")
-    {
-      hashBufferFree++;
-    }
-    else
-    {
-      // std::cout<<" ❝"<<hashEntry<<"❞";
-    }
-  }
-  // std::cout<<std::endl;
-  // hashListCounter.dump(std::cout);
-  //  Assume 1 bit for simplicity.  The entropy encoded can probably do better, but not by much.
-  const auto decisionCostInBits = (hashEntries + individualBytes);
-  // For simplicity just look at the maximum size of the buffer.  in fact many of the entries will
-  // be written when the buffer is mostly empty, so it will take less space to write this value
-  // than shown here.
-  // For simplicity assume that all indexes are just as likely.  At some point it's worth checking
-  // to see if this is try.  If some index values come up a lot more than others, then the
-  // entropy encoder can help us even more.
-  const auto simpleHashCodeCostInBits = std::log(hashBufferSize - hashBufferFree) / std::log(2) * hashEntries;
-  const auto betterHashCodeCostInBits = hashListCounter.getCostInBits();
-  // Assume that each of these will be written out literally.
-  // In fact there is a plan to compress bytes that aren't in the buffer.
-  // At the moment we're only testing the hashing part of the algorithm.
-  const auto individualByteCostInBits = individualBytes * 8;
-  const double totalCostInBytes = std::ceil((decisionCostInBits + betterHashCodeCostInBits + individualByteCostInBits) / 8);
-  auto const fileSize = file.end() - file.begin();
-  std::cout << "processFile() fileSize=" << fileSize
-            << ", hashBufferSize=" << hashBufferSize
-            << ", hashBufferFree=" << hashBufferFree
-            << ", hashEntrySize=" << hashEntrySize
-            << ", hashEntries=" << hashEntries
-            << ", simpleHashCodeCostInBits=" << simpleHashCodeCostInBits
-            << ", betterHashCodeCostInBits=" << betterHashCodeCostInBits
-            << ", individualBytes=" << individualBytes
-            << ", totalCostInBytes=" << totalCostInBytes
-            << ", savings=" << ((fileSize - totalCostInBytes) * 100.0 / fileSize) << '%'
-            << std::endl;
-}
 
 /**
  * Compress the file.  The output is simulated, then summarized on the screen.
@@ -345,6 +308,10 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
       // std::cout<<"possibleEntry="<<possibleEntry<<", index="<<index<<""
       if (hashBuffer[index] == possibleEntry)
       {
+        if (echoAllInput)
+        {
+          std::cout << AlternateColors::yellow.next() << possibleEntry << ansiReset;
+        }
         madeProgress = true;
         current += hashEntrySize;
         hashEntries++;
@@ -354,7 +321,10 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
     }
     if (!madeProgress)
     {
-      // std::cout<<"individual byte:  "<<*current<<std::endl;
+      if (echoAllInput)
+      {
+        std::cout << *current;
+      }
       current++;
       recordNewHash();
       individualBytes++;
@@ -395,7 +365,7 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
   // If we only look at the of the input file that the hashing algorithm was able to compresses,
   // and the corresponding compressed output, how much of a savings did we get?  It's a percent, in the
   // same format used by gzip to report its savings.
-  const auto hashSavings = (hashListCounter.sourceBytesEncoded() - betterHashCodeCostInBits/8)*100.0/hashListCounter.sourceBytesEncoded();
+  const auto hashSavings = (hashListCounter.sourceBytesEncoded() - betterHashCodeCostInBits / 8) * 100.0 / hashListCounter.sourceBytesEncoded();
   // Assume that each of these will be written out literally.
   // In fact there is a plan to compress bytes that aren't in the buffer.
   // At the moment we're only testing the hashing part of the algorithm.
@@ -409,7 +379,7 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
             << ", hashEntries=" << hashEntries
             << ", simpleHashCodeCostInBits=" << simpleHashCodeCostInBits
             << ", betterHashCodeCostInBits=" << betterHashCodeCostInBits
-            <<", hashSavings="<<hashSavings
+            << ", hashSavings=" << hashSavings
             << ", individualBytes=" << individualBytes
             << ", totalCostInBytes=" << totalCostInBytes
             << ", savings=" << ((fileSize - totalCostInBytes) * 100.0 / fileSize) << '%'
@@ -420,26 +390,19 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
 
 int main(int argc, char **argv)
 {
+  if (echoAllInput)
+  {
+    std::cout << "Legend: " << AlternateColors::blue.next()
+              << "Long Strings" << ansiReset << ", "
+              << AlternateColors::yellow.next() << "Medium Strings"
+              << ansiReset << ", not yet compressed" << std::endl;
+  }
   for (int i = 1; i < argc; i++)
   {
     char const *const fileName = argv[i];
     std::cout << "File name: " << fileName << std::endl;
     File file(fileName);
-    /*
-constexpr int bufferSizes[]{ 257, 509, 1021, 2053, 4093 };
-for (int bufferSize : bufferSizes)
-{
-    std::cout<<std::endl<<"  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-"<<std::endl<<std::endl;
-  for (int hashEntrySize = 3; hashEntrySize < 8; hashEntrySize++)
-  {
-    processFile(file, bufferSize, hashEntrySize);
-    std::cout<<std::endl;
-  }
-  processFileRange(file, bufferSize*2-1, 4, 5);
-  std::cout<<std::endl;
-  processFileRange(file, bufferSize*2-1, 4, 6);
-}
-    */
+    //std::cout<<std::endl<<"  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-"<<std::endl<<std::endl;
     processFileRange(file, 4093, 4, 6);
   }
 }
