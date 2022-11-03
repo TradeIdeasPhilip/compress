@@ -23,6 +23,7 @@
 class HashListCounter
 {
 private:
+  int _sourceBytesEncoded;
   // The total cost of everything we've been asked to output.
   // We aren't really outputting anything yet, but we can create a decent
   // approximation of what will come out of the entry encoder.
@@ -37,7 +38,7 @@ private:
   std::map<int, int> _counts;
 
 public:
-  HashListCounter() : _costInBits(0.0),  _totalCount(0.0) {}
+  HashListCounter() : _sourceBytesEncoded(0), _costInBits(0.0),  _totalCount(0.0) {}
 
   // Call this any time we write to an index.
   // Before the first call to write to an index you can't try to read from that index.
@@ -68,6 +69,7 @@ public:
     _costInBits += newCost;
     count += 1;
     _totalCount += 1;
+    _sourceBytesEncoded += 5; // Ouch!  This should be the length of the string, but I don't know that so I had to guess.
   }
 
   // Write multiple lines of debug data.
@@ -89,6 +91,9 @@ public:
 
   // How many (simulated) bits did it take to do all of the writes?
   double getCostInBits() const { return _costInBits; }
+
+  // How much of the input were we able to compress.
+  int sourceBytesEncoded() const { return _sourceBytesEncoded; }
 };
 
 /**
@@ -387,6 +392,10 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
   // entropy encoder can help us even more.
   const auto simpleHashCodeCostInBits = std::log(hashBufferSize - hashBufferFree) / std::log(2) * hashEntries;
   const auto betterHashCodeCostInBits = hashListCounter.getCostInBits();
+  // If we only look at the of the input file that the hashing algorithm was able to compresses,
+  // and the corresponding compressed output, how much of a savings did we get?  It's a percent, in the
+  // same format used by gzip to report its savings.
+  const auto hashSavings = (hashListCounter.sourceBytesEncoded() - betterHashCodeCostInBits/8)*100.0/hashListCounter.sourceBytesEncoded();
   // Assume that each of these will be written out literally.
   // In fact there is a plan to compress bytes that aren't in the buffer.
   // At the moment we're only testing the hashing part of the algorithm.
@@ -400,6 +409,7 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
             << ", hashEntries=" << hashEntries
             << ", simpleHashCodeCostInBits=" << simpleHashCodeCostInBits
             << ", betterHashCodeCostInBits=" << betterHashCodeCostInBits
+            <<", hashSavings="<<hashSavings
             << ", individualBytes=" << individualBytes
             << ", totalCostInBytes=" << totalCostInBytes
             << ", savings=" << ((fileSize - totalCostInBytes) * 100.0 / fileSize) << '%'
