@@ -2,7 +2,7 @@
   "tasks": [
     {
       "type": "cppbuild",
-      "label": "C/C++: clang++ build active file",
+      "label": "build",
       "command": "/usr/bin/clang++",
       "args": [
         "-fcolor-diagnostics",
@@ -14,10 +14,10 @@
         "-std=c++0x",
         "-Wall", 
         "-o",
-        "${fileDirname}/4p"
+        "${workspaceFolder}/4p/4p"
       ],
       "options": {
-        "cwd": "${fileDirname}"
+        "cwd": "${workspaceFolder}/4p"
       },
       "problemMatcher": [
         "$gcc"

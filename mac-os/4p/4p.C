@@ -4,7 +4,7 @@
 #include <string>
 #include <cmath>
 #include "../shared/File.h"
-#include  "../shared/RansHelper.h"
+#include "../shared/RansHelper.h"
 
 // g++ -o 4p -O3 -ggdb -std=c++0x -Wall 4p.C ../shared/File.C ../shared/Misc.C
 
@@ -37,7 +37,7 @@ private:
   std::map<int, int> _counts;
 
 public:
-  HashListCounter() : _costInBits(0.0), _totalCount(0.0) {}
+  HashListCounter() : _costInBits(0.0),  _totalCount(0.0) {}
 
   // Call this any time we write to an index.
   // Before the first call to write to an index you can't try to read from that index.
@@ -330,10 +330,10 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
   {
     bool madeProgress = slidingWindow.tryToCompress(current);
     const int64_t bytesRemaining = file.end() - current;
-    const int min = std::min((int64_t)minHashEntrySize, bytesRemaining);
-    for (int hashEntrySize = maxHashEntrySize; (!madeProgress) && hashEntrySize >= min; hashEntrySize--)
+    for (int hashEntrySize = minHashEntrySize;
+         (!madeProgress) && (hashEntrySize <= maxHashEntrySize) && (hashEntrySize <= bytesRemaining);
+         hashEntrySize++)
     {
-      // std::cout<<"AAAAA"<<std::endl;
       const std::string possibleEntry(current, hashEntrySize);
       // std::cout<<"possibleEntry="<<possibleEntry<<std::endl;
       const int index = simpleHash(possibleEntry) % hashBufferSize;
@@ -355,7 +355,7 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
       individualBytes++;
     }
   }
-  //std::cout<<"HERE A"<<std::endl;
+  // std::cout<<"HERE A"<<std::endl;
   std::map<int, int> hashBufferLengths;
   for (std::string const &hashEntry : hashBuffer)
   {

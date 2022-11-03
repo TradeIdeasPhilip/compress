@@ -9,12 +9,13 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/4p/4p",
-      "args": ["test-data/causes_core_dump-4p.C"],
+      "args": ["test-data/causes_core_dump-4p.txt"],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}/4p",
       "environment": [],
       "externalConsole": false,
-      "MIMode": "lldb"
+      "MIMode": "lldb",
+      "preLaunchTask": "build"
     }
 
   ]

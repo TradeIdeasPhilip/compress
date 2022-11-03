@@ -60,8 +60,14 @@ I have a prototype that looks at a file and does only the hashing step described
 The compression results are not currently accurate.  
 Some parts of the code only present notes to the output and don't record the cost yet.
 
-This is the first release where the VS Code debugger works.
-(Make sure you run from the debug menu on the left of the screen, not the debug icon you see in the top right corner when viewing a *.C file.)
+The VS Code debugger works.
 
-There is a bug in this code.
-The debugger is all queued up to show you where the code crashes.
+## Running it
+
+Make sure you run from the debug menu on the left of the screen, not the debug icon you see in the top right corner when viewing a *.C file.
+
+
+* Use the TERMINAL tab to view the result of the build step.
+* Use the DEBUG CONSOLE tab to view the output of the program and the debugger.
+* The OUTPUT tab is always empty.
+* Ignore the PROBLEMS tab for now.  __TODO__: I need to fix the syntax checker.
