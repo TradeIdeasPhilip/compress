@@ -64,6 +64,9 @@ The VS Code debugger works.
 
 ## Running it
 
+Open the `mac-os` folder in VS Code, not the `4p` folder.
+(That should change!)
+
 Make sure you run from the debug menu on the left of the screen, not the debug icon you see in the top right corner when viewing a *.C file.
 
 
@@ -71,3 +74,57 @@ Make sure you run from the debug menu on the left of the screen, not the debug i
 * Use the DEBUG CONSOLE tab to view the output of the program and the debugger.
 * The OUTPUT tab is always empty.
 * Ignore the PROBLEMS tab for now.  __TODO__: I need to fix the syntax checker.
+
+## Conclusions
+
+Interesting.
+But I'm going to let this one sit.
+
+
+I originally got excited because of some of the mega counter stuff and some of the claims in the early hashing from the previous project.
+The comments said that these long "mega" strings were very rare.
+Often you'd have no choice because you never seen anything with this hash code before.
+Often there was only one byte matching the current hash code, and I was considering whether I needed or even wanted to keep more than one byte per hash in this table.
+But when I looked at actual results, `4p.C` was usually filling the hash table.
+There were some missing entries but not many.
+
+And some with only one byte in them. 
+But that's not even what we want. 
+I was looking for hashes with at least two bytes, and the bytes were all the same.
+There was definitely some of that, more than you'd expect just from randomness, but it wasn't outstanding.
+
+A big part of the problem is that `eight.C` would only look back a certain amount. 
+These hash algorithms were made to look back through the whole file. 
+So that may be part of the reason why the results are so much different.
+This hashing alternative is very useful because we can very precisely control the amount of memory that we use.
+But it does lose that magic from the mega counters that gave those incredible results.
+
+This leaves a couple of possibilities.
+We can go back to the `eight.C` style where we're only looking at recent history.
+Another thought would be to keep track of everything but to give a higher waiting to the last byte or to the most recent bytes.
+It should be easy to run a test like that.
+Show side by side what is the chance of it winning when there's only one byte or only one unique byte and it's the last byte.
+Versus is the chance of winning when we look at all of the values.
+So probably giving a heavy weight to the last one but let's give it a shot and see what happens.
+
+The medium length string hashing algorithm was an interesting idea.
+It gave very _consistent_ results for all the compression it could do. We could never take advantage of the entropy encoder.
+We can never say these numbers are really cheap so we can repeat this one entry over and over really cheaply.
+I never actually check the cost of turning the switch to say yes we should use the results of this test or no we should go on to the short length strings test.
+I suspect that still would have shown some compression.
+But I'm not convinced that it will be impressive considering it will be taking from the other types of compression. They're all aimed at the same entropy.
+
+I've decided to take another look at `eight.C`.
+The 4P project brought up some interesting ideas but maybe too many at once.
+The end of the hash down project suggests some very specific things to go back into `eight.C`. `eight.C` was close to production. It makes more sense to start from there and merge in the long string support from 4P into that project.
+
+
+
+
+
+
+
+
+
+
+

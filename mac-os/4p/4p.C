@@ -1,12 +1,11 @@
 #include <iostream>
 #include <vector>
 #include <map>
+#include <set>
 #include <string>
 #include <cmath>
 #include "../shared/File.h"
 #include "../shared/RansHelper.h"
-
-// g++ -o 4p -O3 -ggdb -std=c++0x -Wall 4p.C ../shared/File.C ../shared/Misc.C
 
 /**
  * One type of compression involves tagging some strings as interesting when we
@@ -100,7 +99,6 @@ public:
 // All of these work in the standard mac terminal window.
 // Blink does not work in the terminal integrated into VS Code.
 // Nothing works when debugging in VS Code.  (DEBUG CONSOLE tab)
-static char const *ansiStart = "\x1b[31;105m";
 static char const *ansiReset = "\x1b[39;49;25m";
 static char const *ansiBlink = "\x1b[5m";
 static char const *ansiYellow1 = "\x1b[93;100m";
@@ -136,10 +134,10 @@ public:
 AlternateColors AlternateColors::yellow(ansiYellow1, ansiYellow2);
 AlternateColors AlternateColors::blue(ansiBlue1, ansiBlue2);
 
-//Only true for debug and development!  This prints the entire
-// input file, and uses colors to show which text was compressed with 
-// which algorithm.
-bool echoAllInput = true;
+// Only true for debug and development!  This prints the entire
+//  input file, and uses colors to show which text was compressed with
+//  which algorithm.
+bool echoAllInput = false;
 
 /**
  * This class is responsible for "sliding window" or LZ77 style of compression.
@@ -235,7 +233,7 @@ public:
       {
         if (selfReferencing)
         {
-          std::cout<<ansiBlink;
+          std::cout << ansiBlink;
         }
         std::cout << AlternateColors::blue.next() << std::string(bestStart, bestLength) << ansiReset;
       }
@@ -262,6 +260,419 @@ public:
 };
 
 /**
+ * Store a list of 0 to 7 bytes, in order.
+ *
+ * This is used in some places to keep statistics about recently found bytes.
+ * E.g. What bytes have we recently seen following a "q" or following a " q"?
+ *
+ * These objects are intended to be efficient in time and space.
+ * A traditional alternative is a map from bytes to ints, so we can keep
+ * track of all bytes we've seen in this situation, not just the last 7.
+ */
+class ShortCharList
+{
+private:
+  // The least significant byte of the _queue is the length of the queue.
+  // The second least significant byte is the newest item in the queue
+  // (assuming the queue has at least one item it it).
+  // The most significant byte is only used if the queue is full, and if
+  // so it contains the oldest byte.
+  uint64_t _queue;
+  unsigned char getSize() const { return _queue & 0xff; }
+  void setSize(unsigned char newSize)
+  {
+    _queue &= 0xffffffffffffff00;
+    _queue |= newSize;
+  }
+
+public:
+  /* Starts with an empty queue of bytes. */
+  ShortCharList() : _queue(0) {}
+
+  /** Add this byte to the list.  If the list is already full, remove the oldest byte. */
+  void addToQueue(char ch)
+  {
+    unsigned char size = getSize();
+    if (size < 7)
+    {
+      size++;
+    }
+    setSize(ch);
+    _queue <<= 8;
+    setSize(size);
+  }
+  double probability(char ch) const
+  {
+    const unsigned char size = getSize();
+    if (size == 0)
+    { // avoid 0/0
+      return 0.0;
+    }
+    int found = 0;
+    auto queue = _queue;
+    for (unsigned char i = 0; i < size; i++)
+    {
+      queue >>= 8;
+      if ((queue & 0xff) == ch)
+      {
+        found++;
+      }
+    }
+    return found / (double)size;
+  }
+  // What portion of the of the items in the queue (a) match the input char and
+  // (b) are not yet marked as impossible.
+  //
+  // Return 0 if ch is not in the queue at all, even if the queue is empty.
+  // I.e. 0/0 returns 0.
+  //
+  // Mark all items that we saw in the queue as impossible.  I.e. if we looked at
+  // this queue and we decided to keep looking, that must mean that the byte we
+  // are looking for is not one of these.
+  double probability(char ch, std::set<char> &impossible) const
+  {
+    const unsigned char size = getSize();
+    int denominator = 0;
+    int numerator = 0;
+    auto queue = _queue;
+    for (unsigned char i = 0; i < size; i++)
+    {
+      queue >>= 8;
+      const char toExamine = queue;
+      if (toExamine == ch)
+      {
+        numerator++;
+        denominator++;
+      }
+      else if (!impossible.count(toExamine))
+      {
+        denominator++;
+      }
+    }
+    queue = _queue;
+    for (unsigned char i = 0; i < size; i++)
+    {
+      queue >>= 8;
+      const char toDisable = queue;
+      impossible.insert(toDisable);
+    }
+    if (numerator == 0)
+    {
+      return 0;
+    }
+    else
+    {
+      return numerator / (double)denominator;
+    }
+  }
+  /**
+   * Remove the oldest bytes.  This is never actually required, but sometimes
+   * we want to mark the data before a certain point as old, and less interesting
+   * than the data that comes after it.
+   *
+   * If count is greater than the size of the queue, remove all bytes.
+   */
+  bool remove(unsigned int count = 1)
+  {
+    auto const size = getSize();
+    if (count >= size)
+    {
+      setSize(0);
+      return true; // Emtpy.
+    }
+    else
+    {
+      setSize(size - count);
+      return false; // Not empty.
+    }
+  }
+  /**
+   * Report the bytes in the queue.  The most recently
+   * added byte will be first.
+   *
+   * Ideally the control characters would be cleaned
+   * up for printing to standard out.  TODO.
+   *
+   * The would be optimized if it was used for anything
+   * but debugging.
+   */
+  std::string debugString() const
+  {
+    auto const size = getSize();
+    std::string result;
+    auto queue = _queue;
+    for (unsigned char i = 0; i < size; i++)
+    {
+      queue >>= 8;
+      const char toCopy = queue;
+      switch (toCopy)
+      {
+      case '\t':
+      {
+        result += "⇥";
+        break;
+      }
+      case '\n':
+      {
+        result += "↚";
+        break;
+      }
+      case ' ':
+      {
+        result += "·";
+        break;
+      }
+      default:
+      {
+        result += toCopy;
+        break;
+      }
+      }
+    }
+    return result;
+  }
+};
+
+class HashOfStats
+{
+private:
+  File &_file;
+  const int _bytesOfContext;
+  const int _weight;
+  std::vector<ShortCharList> _counters;
+  double _costInBits;
+  std::map<int, int> _numberOfFreePasses; // Key is the number of items in the queue at the time.
+  std::map<int, int> _numberOfTimesThisSolvedIt;
+  std::map<int, int> _numberOfTimesThisWasNotHelpful;
+  int getIndex(char const *toCompress)
+  {
+    const auto bytesOfHistory = toCompress - _file.begin();
+    if (bytesOfHistory < _bytesOfContext)
+    {
+      return -1;
+    }
+    else
+    {
+      return simpleHash(toCompress - _bytesOfContext, toCompress) % _counters.size();
+    }
+  }
+
+public:
+  HashOfStats(File &file, int bytesOfContext, size_t size, int weight) : _file(file), _weight(weight), _bytesOfContext(bytesOfContext), _counters(size), _costInBits(0.0) {}
+  ~HashOfStats()
+  {
+    std::cout << "[HashOfStats bytesOfContext=" << _bytesOfContext << ", size=" << _counters.size() << ", weight="<<_weight
+    <<", _costInBits="<<_costInBits;
+    std::map<std::string, int> counts;
+    for (auto const &counter : _counters)
+    {
+      counts[counter.debugString()]++;
+    }
+    for (auto const &kvp : counts)
+    {
+      std::cout << ' ' << kvp.second << ":" << kvp.first;
+    }
+    std::cout << "]" << std::endl;
+  }
+  bool tryToCompress(char const *toCompress, std::set<char> &impossible)
+  {
+    const auto index = getIndex(toCompress);
+    if (index < 0)
+    {
+      return false;
+    }
+    auto &counter = _counters[index];
+    auto const probability = counter.probability(*toCompress, impossible);
+    // TODO consider the cost of saying that this is or is not to be used.
+    if (probability == 0)
+    {
+      return false;
+    }
+    // This would cost 0 if there was only one byte in history and it matched the current byte.
+    _costInBits += pCostInBits(probability);
+    return true;
+  }
+  void storeContext(char const *toCompress)
+  {
+    const auto index = getIndex(toCompress);
+    if (index >= 0)
+    {
+      _counters[index].addToQueue(*toCompress);
+    }
+  }
+  double costInBits() const { return _costInBits; }
+};
+
+class TwoByteStats
+{
+private:
+  File &_file;
+  ShortCharList _counters[0x10000];
+  double _costInBits;
+  ShortCharList *getCounter(char const *toCompress)
+  {
+    const auto bytesOfHistory = toCompress - _file.begin();
+    if (bytesOfHistory < 2)
+    {
+      return NULL;
+    }
+    else
+    {
+      return &_counters[*(((uint16_t const *)toCompress) - 1)];
+    }
+  }
+
+public:
+  TwoByteStats(File &file) : _file(file), _costInBits(0.0) {}
+  bool tryToCompress(char const *toCompress, std::set<char> &impossible)
+  {
+    if (auto counter = getCounter(toCompress))
+    {
+      auto const probability = counter->probability(*toCompress, impossible);
+      // TODO consider the cost of saying that this is or is not to be used.
+      if (probability == 0)
+      {
+        return false;
+      }
+      // This would cost 0 if there was only one byte in history and it matched the current byte.
+      _costInBits += pCostInBits(probability);
+      return true;
+    }
+    else
+    {
+      return false;
+    }
+  }
+  void storeContext(char const *toCompress)
+  {
+    if (auto counter = getCounter(toCompress))
+    {
+      counter->addToQueue(*toCompress);
+    }
+  }
+  double costInBits() const { return _costInBits; }
+};
+
+class OneByteStats
+{
+private:
+  File &_file;
+  ShortCharList _counters[0x100];
+  double _costInBits;
+  ShortCharList *getCounter(char const *toCompress)
+  {
+    const auto bytesOfHistory = toCompress - _file.begin();
+    if (bytesOfHistory < 1)
+    {
+      return NULL;
+    }
+    else
+    {
+      return &_counters[(uint8_t) * (toCompress - 1)];
+    }
+  }
+
+public:
+  OneByteStats(File &file) : _file(file), _costInBits(0.0) {}
+  bool tryToCompress(char const *toCompress, std::set<char> &impossible)
+  {
+    if (auto counter = getCounter(toCompress))
+    {
+      auto const probability = counter->probability(*toCompress, impossible);
+      // TODO consider the cost of saying that this is or is not to be used.
+      if (probability == 0)
+      {
+        return false;
+      }
+      // This would cost 0 if there was only one byte in history and it matched the current byte.
+      _costInBits += pCostInBits(probability);
+      return true;
+    }
+    else
+    {
+      return false;
+    }
+  }
+  void storeContext(char const *toCompress)
+  {
+    if (auto counter = getCounter(toCompress))
+    {
+      counter->addToQueue(*toCompress);
+    }
+  }
+  double costInBits() const { return _costInBits; }
+};
+
+class LastResort
+{
+private:
+  double _costInBits;
+
+public:
+  LastResort() : _costInBits(0.0) {}
+  void tryToCompress(char const *&toCompress, std::set<char> const &impossible)
+  {
+    assert(!impossible.count(*toCompress));
+    // We've marked 0 or more items as impossible.  What is the probability of finding
+    // the given character in the list of bytes that are still possible?
+    // Assume all possible bytes have equal probability.
+    const double probability = 1.0 / (256 - impossible.size());
+    _costInBits += pCostInBits(probability);
+  }
+
+  double costInBits() const { return _costInBits; }
+};
+
+class OneByteAtATime
+{
+private:
+  std::vector<HashOfStats> _hashedStats;
+  TwoByteStats _twoByteStats;
+  OneByteStats _oneByteStats;
+  LastResort _lastResort;
+  int _inputCount;
+
+public:
+  OneByteAtATime(File &file) : _twoByteStats(file), _oneByteStats(file), _inputCount(0)
+  {
+    _hashedStats.emplace_back(file, 7, 1021, 16);
+    _hashedStats.emplace_back(file, 6, 2053, 8);
+    _hashedStats.emplace_back(file, 5, 2053, 4);
+    _hashedStats.emplace_back(file, 4, 4093, 2);
+    _hashedStats.emplace_back(file, 3, 4093, 1);
+  }
+  void compress(char const *toCompress)
+  {
+    _inputCount++;
+    std::set<char> impossible;
+    bool compressed = false;
+    for (HashOfStats &hashedStats : _hashedStats)
+    {
+      compressed = hashedStats.tryToCompress(toCompress, impossible);
+      if (compressed)
+        break;
+    }
+    compressed || _twoByteStats.tryToCompress(toCompress, impossible) || _oneByteStats.tryToCompress(toCompress, impossible) || (_lastResort.tryToCompress(toCompress, impossible), true);
+    for (HashOfStats &hashedStats : _hashedStats)
+    {
+      hashedStats.storeContext(toCompress);
+    }
+    _twoByteStats.storeContext(toCompress);
+    _oneByteStats.storeContext(toCompress);
+  }
+  double costInBits() const
+  {
+    double result = _lastResort.costInBits() + _oneByteStats.costInBits() + _twoByteStats.costInBits();
+    for (HashOfStats const &hashedStats : _hashedStats)
+    {
+      result += hashedStats.costInBits();
+    }
+    return result;
+  }
+  int inputCount() const { return _inputCount; }
+};
+
+/**
  * Compress the file.  The output is simulated, then summarized on the screen.
  *
  * file is the input to be compressed.
@@ -274,7 +685,6 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
 {
   HashListCounter hashListCounter;
   // std::cout<<"processFile()"<<std::endl;
-  size_t individualBytes = 0;
   size_t hashEntries = 0;
   std::vector<std::string> hashBuffer(hashBufferSize);
   auto current = file.begin();
@@ -293,6 +703,7 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
     }
   };
   SlidingWindow slidingWindow(file);
+  OneByteAtATime oneByteAtATime(file);
 
   while (current < file.end())
   {
@@ -325,9 +736,9 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
       {
         std::cout << *current;
       }
+      oneByteAtATime.compress(current);
       current++;
-      recordNewHash();
-      individualBytes++;
+      // recordNewHash();
     }
   }
   // std::cout<<"HERE A"<<std::endl;
@@ -353,7 +764,7 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
   // hashListCounter.dump(std::cout);
   auto const hashBufferFree = hashBufferLengths[0];
   // Assume 1 bit for simplicity.  The entropy encoded can probably do better, but not by much.
-  const auto decisionCostInBits = (hashEntries + individualBytes);
+  const auto decisionCostInBits = (hashEntries * 2 /*+ individualBytes*/);
   // For simplicity just look at the maximum size of the buffer.  in fact many of the entries will
   // be written when the buffer is mostly empty, so it will take less space to write this value
   // than shown here.
@@ -369,8 +780,8 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
   // Assume that each of these will be written out literally.
   // In fact there is a plan to compress bytes that aren't in the buffer.
   // At the moment we're only testing the hashing part of the algorithm.
-  const auto individualByteCostInBits = individualBytes * 8;
-  const double totalCostInBytes = std::ceil((decisionCostInBits + betterHashCodeCostInBits + individualByteCostInBits + slidingWindow.costInBits()) / 8);
+  const auto oneByteAtATimeCostInBits = oneByteAtATime.costInBits();
+  const double totalCostInBytes = std::ceil((decisionCostInBits + betterHashCodeCostInBits + oneByteAtATimeCostInBits + slidingWindow.costInBits()) / 8);
   auto const fileSize = file.end() - file.begin();
   std::cout << "processFileRange() fileSize=" << fileSize
             << ", hashBufferSize=" << hashBufferSize
@@ -380,7 +791,8 @@ void processFileRange(File &file, int hashBufferSize, int minHashEntrySize, int 
             << ", simpleHashCodeCostInBits=" << simpleHashCodeCostInBits
             << ", betterHashCodeCostInBits=" << betterHashCodeCostInBits
             << ", hashSavings=" << hashSavings
-            << ", individualBytes=" << individualBytes
+            << ", oneByteAtATimeCostInBits=" << oneByteAtATimeCostInBits
+            << ", oneByteInputCount=" << oneByteAtATime.inputCount()
             << ", totalCostInBytes=" << totalCostInBytes
             << ", savings=" << ((fileSize - totalCostInBytes) * 100.0 / fileSize) << '%'
             << " ";
@@ -402,7 +814,41 @@ int main(int argc, char **argv)
     char const *const fileName = argv[i];
     std::cout << "File name: " << fileName << std::endl;
     File file(fileName);
-    //std::cout<<std::endl<<"  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-"<<std::endl<<std::endl;
+    // std::cout<<std::endl<<"  -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-"<<std::endl<<std::endl;
     processFileRange(file, 4093, 4, 6);
   }
+
+  /*
+    // * Double underline and crossed out both worked on the terminal integrated into VS code, but not the normal mac terminal.
+    // * Fonts did nothing on either terminal.
+    // * Red worked perfectly in both terminals.
+    std::cout << "\x1b[11m"
+              << "11 - Alternative font #1" << std::endl
+              << "\x1b[12m"
+              << "12 - Alternative font #2" << std::endl
+              << "\x1b[13m"
+              << "13 - Alternative font #3" << std::endl
+              << "\x1b[14m"
+              << "14 - Alternative font #4" << std::endl
+              << "\x1b[15m"
+              << "15 - Alternative font #5" << std::endl
+              << "\x1b[16m"
+              << "16 - Alternative font #6" << std::endl
+              << "\x1b[17m"
+              << "17 - Alternative font #7" << std::endl
+              << "\x1b[18m"
+              << "18 - Alternative font #8" << std::endl
+              << "\x1b[19m"
+              << "19 - Alternative font #9" << std::endl
+              << "\x1b[20m"
+              << "20 - Fraktur (Gothic)" << std::endl
+              << "\x1b[10m"
+              << "10 - Normal font" << std::endl
+              << "\x1b[21m"
+              << "21 - Double underline" << std::endl
+              << "\x1b[9m"
+              << "9 - Crossed out" << std::endl
+              << "\x1b[31m"
+              << "31 - red" << std::endl;
+              */
 }

@@ -5,6 +5,7 @@
   ],
   "files.associations": {
     "4p.C": "cpp",
-    "HashDown.C": "cpp"
+    "HashDown.C": "cpp",
+    "Misc.C": "cpp"
   }
 }

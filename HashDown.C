@@ -13,7 +13,7 @@
 // New idea:  Use a hash table to organize the old data.  So we don't
 // have to wade through a lot of historical data.  A hash will take us
 // directly to the data we need.  Should be much faster than Eight.C.
-// And maybe loose some compression, but I'm thinking not much.
+// And maybe lose some compression, but I'm thinking not much.
 //
 // This is another idea for compression.  This is similar to Eight.C.
 // We look at one character at a time.  And we look at limited context,
