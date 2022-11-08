@@ -9,9 +9,10 @@ lz_bcompress
 lz_compress
 lz_decompress
 a3
-eight
+/eight
 uneight
 hash-down
 output
 *.o
 *.s
+*.dSYM

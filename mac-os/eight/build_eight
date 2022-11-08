@@ -1,0 +1,10 @@
+#!/bin/sh
+
+clang++ -o eight -O3 -ggdb -std=c++0x -Wall \
+    Eight.C ../shared/File.C ../shared/RansBlockReader.C ../shared/RansBlockWriter.C EightShared.C \
+    JumpBackSummary.C ../shared/Misc.C
+
+clang++ -o uneight -O3 -ggdb -std=c++0x -Wall \
+    Uneight.C ../shared/File.C ../shared/RansBlockReader.C ../shared/RansBlockWriter.C EightShared.C \
+    JumpBackSummary.C ../shared/Misc.C
+    

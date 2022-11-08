@@ -1,0 +1,14 @@
+{
+  "cSpell.words": [
+    "ggdb",
+    "Rans"
+  ],
+  "files.associations": {
+    "4p.C": "cpp",
+    "HashDown.C": "cpp",
+    "Misc.C": "cpp",
+    "ranshelper.h": "cpp",
+    "Uneight.C": "cpp",
+    "Eight.C": "cpp"
+  }
+}
