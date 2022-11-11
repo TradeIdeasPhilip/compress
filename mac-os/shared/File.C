@@ -24,6 +24,11 @@ File::File(char const *name, std::string const &preamble) :
   }
 }
 
+File::File(std::string const &name, size_t preambleSize) :
+  File(name.c_str(), preambleSize)
+{
+}
+
 File::File(char const *name, size_t preambleSize) :
   _preambleSize(preambleSize), _preambleFirstAllocated(NULL),
   _begin(NULL), _end(NULL)

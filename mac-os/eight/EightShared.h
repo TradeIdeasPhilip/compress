@@ -63,7 +63,7 @@ public:
 // The decompressor reads bytes from this class one at a time.
 // This class will defer a lot of the hard work to HistorySummary.
 // This class will directly handle the cases that HistorySummary can't, using
-//   the simplist possible encoding.
+//   the simplest possible encoding.
 // And this class takes care of encoding / decoding the choice that we make,
 //   HistorySummary or the simple method.
 class TopLevel

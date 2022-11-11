@@ -1,7 +1,10 @@
 {
   "cSpell.words": [
+    "clzl",
+    "forcy",
     "ggdb",
-    "Rans"
+    "Rans",
+    "uncount"
   ],
   "files.associations": {
     "4p.C": "cpp",
@@ -9,6 +12,14 @@
     "Misc.C": "cpp",
     "ranshelper.h": "cpp",
     "Uneight.C": "cpp",
-    "Eight.C": "cpp"
+    "Eight.C": "cpp",
+    "EightShared.C": "cpp",
+    "Count.C": "cpp",
+    "string": "cpp",
+    "File.C": "cpp",
+    "Uncount.C": "cpp",
+    "iterator": "cpp",
+    "vector": "cpp",
+    "algorithm": "cpp"
   }
 }

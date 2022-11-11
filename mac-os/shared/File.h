@@ -6,7 +6,7 @@
 #include "Misc.h"
 
 
-// For simpliciy and performance, use mmap() to read the entire file into
+// For simplicity and performance, use mmap() to read the entire file into
 // memory.  This implementation is lacking a few things.  We can't handle
 // streaming data / pipes.  The file size is limited.  These have nothing to
 // do with the compressions algorithm.  You could make another implementation
@@ -23,6 +23,7 @@ private:
 public:
   File(char const *name, size_t preambleSize = 0);
   File(char const *name, std::string const &preamble);
+  File(std::string const &name, size_t preambleSize = 0);
   ~File();
   File(const File&) =delete;
   void operator=(const File&) =delete;

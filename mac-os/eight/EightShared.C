@@ -91,7 +91,7 @@ public:
     // interesting bytes.  In particular, what if you had to do a lot of
     // trivial encodings because we were skipping some bytes.  I was
     // considering using a different algorithm that looked at all bytes.
-    // So far the results say that will not be nesessary.  So far I have
+    // So far the results say that will not be necessary.  So far I have
     // seen very few extra encodings, and the total output size is almost
     // unchanged.
     std::cout<<"A total of "<<extras<<" extra trivial encodings."<<std::endl;
