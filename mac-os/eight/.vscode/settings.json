@@ -20,6 +20,7 @@
     "Uncount.C": "cpp",
     "iterator": "cpp",
     "vector": "cpp",
-    "algorithm": "cpp"
+    "algorithm": "cpp",
+    "RansBlockReader.C": "cpp"
   }
 }

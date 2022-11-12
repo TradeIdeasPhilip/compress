@@ -24,7 +24,7 @@ void compress(std::string const &inputFileName, bool headerOnly = false)
   {
     const std::string outputFileName = inputFileName + std::string(".C↓");
     RansBlockWriter outputFile(outputFileName);
-    outputFile.write(RansRange(inputFile.size(), 1, MAX_INPUT_FILE_SIZE + 1));
+    outputFile.writeWithEqualWeights(inputFile.size(), MAX_INPUT_FILE_SIZE + 1);
     std::vector<int> byteCount(256);
     for (char const *p = inputFile.begin();
          p < inputFile.end();
@@ -39,7 +39,7 @@ void compress(std::string const &inputFileName, bool headerOnly = false)
       if (remaining < 1)
         break;
       assert(count <= remaining);
-      outputFile.write(RansRange(count, 1, remaining + 1));
+      outputFile.writeWithEqualWeights(count, remaining + 1);
       remaining -= count;
     }
     assert(remaining == 0);

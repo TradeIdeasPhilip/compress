@@ -28,6 +28,16 @@ public:
   uint32_t get(uint32_t denominator);
   void advance(RansRange range);
 
+  /**
+   * This is a simplified alternative to calling get() and advance().
+   * 
+   * This assumes that the were count possible values, numbed 0 through count-1.
+   * This assumes all values have equal probabilities.
+   * 
+   * This can decode values encoded with RansBlockWriter::writeWithEqualWeights().
+   */
+  uint32_t getWithEqualWeights(uint32_t count);
+
   // This is ugly.  There should be a better interface connecting
   // RansBlockReader with BoolCounter and SymbolCounter.
   //

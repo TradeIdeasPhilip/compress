@@ -14,8 +14,7 @@ void uncompress(std::string const &inputFileName)
 {
   RansBlockReader inputFile(inputFileName.c_str());
 
-  const auto fileSize = inputFile.get(MAX_INPUT_FILE_SIZE + 1);
-  inputFile.advance(RansRange(fileSize, 1, MAX_INPUT_FILE_SIZE + 1));
+  const auto fileSize = inputFile.getWithEqualWeights(MAX_INPUT_FILE_SIZE + 1);
   std::cout << "fileSize=" << fileSize << std::endl;
 
   auto remaining = fileSize;
@@ -32,8 +31,7 @@ void uncompress(std::string const &inputFileName)
   {
     Stats stats;
     stats.start = nextStart;
-    stats.count = inputFile.get(remaining + 1);
-    inputFile.advance(RansRange(stats.count, 1, remaining + 1));
+    stats.count = inputFile.getWithEqualWeights(remaining + 1);
     stats.output = allStats.size();
     assert(allStats.size() < 256);
     allStats.push_back(stats);

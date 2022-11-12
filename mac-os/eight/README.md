@@ -6,7 +6,7 @@ My plan is to add sliding buffer style compression in addition to this.
 
 # count and uncount
 
-The count and uncount programs are simple examples that use some of the same tools and libraries as most of the programs in this `compress` project.
+The `count` and `uncount` programs are simple examples that use some of the same tools and libraries as most of the programs in this `compress` project.
 `count` and `uncount` are __complete__.
 They compress and decompress data.
 
@@ -103,6 +103,18 @@ These fractions are so close to ⅓ that you can't measure a difference.
 Most important of all, my encoder and decoder are _consistent_, so the encoder and decoder will always see the same thing. 
 There is a lot of rounding in that code.
 It's not hard, but it would be easy to make a mistake.
+
+### Faking it
+
+In a lot of experiments I don't always bother to actually use the entropy encoder.
+There are standard formulas for computing the cost of using the entropy encoder.
+And it's a lot quicker and easier to compute the cost of encoding than to actually do the encoding.
+
+The problem with that approach is that you can't find all your bugs.
+By compressing and decompressing documents, you measure the results __and__ verify their accuracy.
+If you are only simulating the work, you could be hiding all sorts of bugs and your results might be useless.
+
+`count` and  `uncount` do not fake anything.
 
 ## Block Reader / Writer
 

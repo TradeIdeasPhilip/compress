@@ -2,13 +2,12 @@
 #include <stdexcept>
 #include "RansBlockReader.h"
 
-RansBlockReader::RansBlockReader(char const *fileName) :
-  _file(fileName),
-  // We are casting away the const.  For some reason the library likes it
-  // that way.  We are not going to modify anything.
-  _next((uint32_t *)_file.begin()),
-  _end(_next + _file.size()),
-  _remainingInBlock(0)
+RansBlockReader::RansBlockReader(char const *fileName) : _file(fileName),
+                                                         // We are casting away the const.  For some reason the library likes it
+                                                         // that way.  We are not going to modify anything.
+                                                         _next((uint32_t *)_file.begin()),
+                                                         _end(_next + _file.size()),
+                                                         _remainingInBlock(0)
 {
   if (!_file.valid())
     throw std::runtime_error(_file.errorMessage());
@@ -38,7 +37,7 @@ bool RansBlockReader::eof()
   _next++;
   // TODO this would also be a good place to catch if we are reading past the
   // end of the data.
-  //std::cout<<"Next block size:  "<<_remainingInBlock<<std::endl;
+  // std::cout<<"Next block size:  "<<_remainingInBlock<<std::endl;
   if (_remainingInBlock < 0)
     // This has been very helpful.  It is tempting to add more info to this
     // value.  It's a 32 bit value and maxBlockSize currently requires only
@@ -71,8 +70,14 @@ void RansBlockReader::advance(RansRange range)
   _remainingInBlock--;
 }
 
-void RansBlockReader::dumpStats(std::ostream &out)
-{ // Things like how many blocks we've read.  Normal stuff.
-  out<<"RansBlockReader::dumpStats() TODO"<<std::endl;
+uint32_t RansBlockReader::getWithEqualWeights(uint32_t count)
+{
+  const uint32_t result = get(count);
+  advance(RansRange(result, 1, count));
+  return result;
 }
 
+void RansBlockReader::dumpStats(std::ostream &out)
+{ // Things like how many blocks we've read.  Normal stuff.
+  out << "RansBlockReader::dumpStats() TODO" << std::endl;
+}
