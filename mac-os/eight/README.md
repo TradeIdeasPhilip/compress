@@ -10,144 +10,124 @@ The `count` and `uncount` programs are simple examples that use some of the same
 `count` and `uncount` are __complete__.
 They compress and decompress data.
 
-Like most of these compression programs, `count` has three major parts.
-* `count` starts by looking at the input file in detail, trying to find patterns. I call that the main program.
-* An entropy encoder takes a series of number from the first part of the process, and outputs a series of bits.
-* `RansBlockWriter` takes the output from the entropy encoder and sends that to a file.
+## Reusable libraries
 
-The main program is the only part that seriously changes from one program to the next.
-The other items are libraries that work well and get reused a lot.
+The most important parts of the `count` and `uncount` project are the reusable libraries.
 
-`uncount` works in the reverse order with `RansBlockReader` reading the file and feeding bits to the entropy decoder, the entropy decoder converts the bits into numbers, and finally the program converts those numbers into the bytes of the decompressed file.
+### Entropy encoder
 
-## Entropy Encoder / Decoder
+After some experimentation I've settled on the rANS entropy encoder.
+Its results are as good as theoretical maximum.
+And I've added a little code on top to make it very easy to use.
 
-This is a very powerful part of every program.
-It allows you to focus on integers when writing your program.
+The input to an entropy encoder is a series of values, like the ones listed here in __bold__.
+* The user id is __12345__.
+* The session id is __8765__.
+* __Yes__, the user wants to keep a backup file.
+* The user chose the __GIF__ file format.
+* The background color is __#ff0000__
+* etc.
 
-For example, maybe the main program keeps a list of of interesting strings.
-If you are compressing a document describing a pizza party, you might use the words "pizza" and "party" a lot.
-Maybe the main program has a list of these words, and it just sends a 2 every time it sees "pizza" and a 4 every time it sees "party".
-This is a very simplified version of what LZ78, LZW, etc. actually do.
+The output from an entropy encoder is a series of bits.
+And it is efficient; it will try to use as few bits as possible. 
 
-The question is how to output numbers like {0, 1, 2, 3, 4} efficiently.
-If you tried to use simple binary encoding, it would take 3 bits to send send any of those 5 numbers.
+In short, the entropy encoder converts from a convenient form of the data to an efficient form of the same data.
 
-| Internal value | Bits written to the file |
-| -------------: | ------------------: | 
-| 0              | 000 |
-| 1              | 001 |
-| 2              | 010 |
-| 3              | 011 |
-| 4              | 100 |
-| unused         | 101 |
-| unused         | 110 |
-| unused         | 111 |
+### Entropy decoder
 
-An entropy encoder can do better.
-At a bare minimum we can notice that if the first bit is a 1, the internal value must have been a 4.
-So we can trim some unused bit patterns to make the encoding of 4 much shorter.
+The decoder will take the output from the encoder and convert it back into the original values, e.g.
+* 12345
+* 8765
+* Yes
+* GIF
+* #ff0000
+
+Note that the compressed version of the data only contains the field values, e.g. 12345.
+The field names, e.g. user id, are not stored.
+The program doing the encoding and the program doing the decoding need to agree on these in advance.
+
+For example, let's define the phil-fun-test file format (`*.pft`) to contain the following fields, in order.
+
+| Field name | Possible values |
+| ------------- | ------------------ | 
+| user id              | 0 - 2,147,483,647 |
+| session id              | 0 - 65,535 |
+| keep backup              | yes, no |
+| file format              | JPG, PNG, GIF, TIFF, BMP  |
+| background color             | 0 - 16777215 |
+
+Of course, the file format can be as simple or as complicated as you like.
+The `count` and `uncount` programs look at a file as a sequence of bytes, without knowing or caring what those bytes mean.
+### Optimizing based on frequency
+
+We need one more thing to make the entropy encoder and decoder work.
+We need more than the list of possible values for each item.
+We need to tell the encoder and decoder exactly how often we expect to see each value.
 For example:
-| Internal value | Bits written to the file |
-| -------------: | ------------------: | 
-| 0              | 000 |
-| 1              | 001 |
-| 2              | 010 |
-| 3              | 011 |
-| 4              | 1 |
 
-Now it will take only a single bit to encode the value 4.
-Is that good?
-If 4 is a common value, it's very good.
-And we don't have to guess.
-The main program doesn't just tell the entropy encoder what values to encode, it says how common each value is.
-So the entropy encoder can reserve shorter codes for more common values and use longer codes for values that are less common.
+| Field name | Possible values |
+| ------------- | ------------------ | 
+| user id              | 0 - 2,147,483,647, all equally likely |
+| session id              | 0 - 65,535, 25% of the values are less than 16.  50% are less than 256. |
+| keep backup              | yes (99.7% of the time), no (0.3% of the time) |
+| file format              | JPG (20%), PNG (44%), GIF (22%), TIFF (4%), BMP (10%)  |
+| background color             | 0 - 16777215, all equally likely |
 
-### Specific entropy encoders
+The encoder will use fewer bits to encode more common values.
+Less common values will require more bits to encode, but there are fewer of these, so they are less important.
 
-Any entropy encoder will look at how often each of the values are used, and will pick smaller encodings for the more popular items.
+Entropy encoding works best when some items are much more common than others.
+In some programs I try to reorganize the data so the entropy encoder can do a better job.
+Search this repository for "mru list" for some good examples.
 
-Huffman encoder is a popular version of entropy encoding.
-It's very simple.
-A second year college student might build one from scratch for homework.
-It can do everything I've described here and a little more.
+### Convenience code
 
-The biggest limitation of Huffman encoding is its precision.
+This project uses a lot of shared code.
 
-If you are encoding a series of yes/no questions, each question will add one bit to the output.
-In short, Huffman can't do anything for yes/no questions.
+One example is that the rANS encoder expects all frequency data to be expressed as a fraction where the denominator is a power of two.
+I've found it much more common for the main program to use fractions with any denominator, so my library code does the conversion automatically.
 
-What if you have a series of questions with three answers?
-Huffman will reduce each answer to `0`, `10`, or `10`.
-That would be perfect if the first value was found 50% of the time and the other two values were used 25% of the time each.
-But other encoders can do better in most circumstances.
+If you say that you have and item with probability 1/3, the library will change that to something like  35791394<b>1</b>/1073741824 or 35791394<b>2</b>/1073741824.
+And a corresponding library will tell the decoder to convert from those huge fractions back to 1/3.
 
-I always use a rANS encoder instead.
-I can say things like "99% of the answers will be yes and 1% will be no."
-And the results will cost around 0.0807931 bits per answer.
-That's more than 12 answers per bit, more than 12 times as efficient as Huffman.
+Another example:  The encoder spits out a stream of bits.
+That's not convenient.
+So I wrote a wrapper around the encoder which will write the output to a file.
+There were a lot of little details, but you don't have to worry about those.
+I also wrote a corresponding library to read from that file and send the bits to the rANS decoder in a format that it likes.
 
-### Fractions
+### Main program
 
-When you give a probability to the rANS encoder, it needs to be written as a fraction.
-The basic rans encoder needs the denominator to be a power of 2.
-In practice my denominator is rarely a power of 2 so I created a library that lets you use any number as a denominator.
+I wrote the simplest possible main program make use of the rANS encoder/decoder and my convenience libraries.
 
-For example, assume the main program is working with 3 values, 0, 1 and 2.
-Assume there is a ⅓ chance of seeing any one of them.
-I.e. each of the three values occur just as often as the others.
-My library would automatically change that to say that there is a
-35791394<b>1</b>/1073741824 chance of seeing the first item or the second item, but a 35791394<b>2</b>/1073741824 of seeing the third item.
-These fractions are so close to ⅓ that you can't measure a difference.
+`count` starts by reading the entire input file.
+It counts the number of times it sees each byte in the file.
+For a super simple example, let's say the input file contains `abbcccdddd`.
+So we'll create a table like this:
+| Byte | Frequency |
+| :----: | :---------: |
+| a | 1/10 |
+| b | 2/10 |
+| c | 3/10 |
+| d | 4/10 |
+| everything else | 0/10
 
-Most important of all, my encoder and decoder are _consistent_, so the encoder and decoder will always see the same thing. 
-There is a lot of rounding in that code.
-It's not hard, but it would be easy to make a mistake.
+Then `count` will make another pass through the input file, one byte at a time.
+It will send each byte to the encoder.
+And it will use the table above to encode each byte.
 
-### Faking it
+There's one more thing.
+`uncount` needs access to the frequency table that `count` created.
+So, before sending the individual bytes to the encoder, `count` needs to send the contents of this table to the compressed file.
+And that's it.
 
-In a lot of experiments I don't always bother to actually use the entropy encoder.
-There are standard formulas for computing the cost of using the entropy encoder.
-And it's a lot quicker and easier to compute the cost of encoding than to actually do the encoding.
+If you run `count` on a file of English text, it should compress that into a smaller file.
+IF you run `count` on a file of random garbage, the output might actually be bigger than the input.
+Either way, you can run `uncount` on the compressed file to restore the original file.
 
-The problem with that approach is that you can't find all your bugs.
-By compressing and decompressing documents, you measure the results __and__ verify their accuracy.
-If you are only simulating the work, you could be hiding all sorts of bugs and your results might be useless.
+### Old code
 
-`count` and  `uncount` do not fake anything.
-
-## Block Reader / Writer
-
-There are a lot more little details involved in using an entropy encoder.
-Things like rounding off to the nearest byte, detecting end of file, and just making sure the items come out in the same order as they went in.
-
-These details are all hidden in the `RansBlockReader` and `RansBlockWriter` classes.
-
-## Main Program
-
-The main compression program will read from the input file, look for patterns, and describe the file in a format that works well for the rANS encoder.
-
-The main part of `compress` is very simple on purpose.
-It reads the entire input file before it sends any data to the output file.
-It looks at the bytes of the file and counts how often each byte appears.
-If the input file is English text, bytes like `a` and `e` will be very common, while bytes like `z` and `q` will be far less common.
-A lot of bytes will not appear in the file at all because they are only used for non-English characters.
-
-The main program assumes this pattern will hold.
-As long as some bytes are very common, the entropy encoder will find an efficient ways to encode the bytes.
-If the input file is random, the entropy encoder will spend about one byte of output to encode each byte of input, for no real change.
-
-But there is a cost!
-The compressor knows the frequency of each byte of the original file because it has complete access to that file.
-But how does the decoder know the frequencies of the bytes?
-When you ask the decoder to give you the next value from the compressed file, you also need to give it a list of probabilities for each possible answer.
-This needs to match the list used to encode the value.
-
-How do we do this?
-_First_ `count` writes the probabilities of all 256 possible bytes at the beginning of the output file.
-_After that_ it copies the input file into the rANS encoder one byte at a time.
-This header will take up space, and there are other sources of overhead, so the output file might be larger than the input.
-
-This program is helpful on some input files.
-However the main program is just a placeholder.
-This program shows off the rANS encoder and my libraries that make the encoder easier to use.
+This project only uses the newest and most practical version of each bit of shared code.
+Some of my previous projects did things slightly differently.
+Those typically lead to the new and improved versions demonstrated by this project.
+(Written 11/17/2022)
