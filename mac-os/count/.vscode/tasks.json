@@ -8,17 +8,14 @@
         "-fcolor-diagnostics",
         "-fansi-escape-codes",
         "-g",
-        "Eight.C",
+        "Count.C",
         "../shared/File.C",
         "../shared/Misc.C",
         "../shared/RansBlockWriter.C",
-        "../shared/RansBlockReader.C",
-        "JumpBackSummary.C",
-        "EightShared.C",
-        "-std=c++17",
+        "-std=c++0x",
         "-Wall", 
         "-o",
-        "${workspaceFolder}/eight"
+        "${workspaceFolder}/count"
       ],
       "options": {
         "cwd": "${workspaceFolder}"

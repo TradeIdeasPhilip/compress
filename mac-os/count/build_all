@@ -1,0 +1,5 @@
+#!/bin/sh
+
+
+clang++ -o count   -O3 -g -std=c++17 -Wall Count.C   ../shared/RansBlockWriter.C ../shared/File.C ../shared/Misc.C
+clang++ -o uncount -O3 -g -std=c++17 -Wall Uncount.C ../shared/RansBlockReader.C ../shared/File.C ../shared/Misc.C
