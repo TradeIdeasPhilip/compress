@@ -9,7 +9,6 @@
 
 #include "rans64.h"
 
-
 // The input is the probability of something happening.  The output is the
 // cost in bits to represent this with an ideal entropy encoder.  We use this
 // all over for prototyping.  Just ask for the cost, don't actually bother to
@@ -52,12 +51,13 @@ class RansRange
 private:
   uint32_t _start;
   uint32_t _freq;
+
 public:
   // We always use this when we call the rANS library.
   static const uint32_t SCALE_BITS = 31;
 
   // This is the denominator any time we call the rANS library.
-  static const uint32_t SCALE_END = (1u<<SCALE_BITS);
+  static const uint32_t SCALE_END = (1u << SCALE_BITS);
 
   // (n / d) ≈ (rescale(n, d) / SCALE_END)
   // Change numbers from the main program's domain into the form used by the
@@ -87,7 +87,11 @@ public:
   }
 
   // An arbitrary safe state.
-  void clear() { _start = 0; _freq = SCALE_END; }
+  void clear()
+  {
+    _start = 0;
+    _freq = SCALE_END;
+  }
   RansRange() { clear(); }
 
   // Initialize from numbers in the main program's domain.
@@ -107,21 +111,23 @@ public:
     }
   }
   RansRange(uint32_t start, uint32_t freq, uint32_t scaleEnd)
-  { load(start, freq, scaleEnd); }
+  {
+    load(start, freq, scaleEnd);
+  }
 
   // An invalid range.  If you try to encode this, it should fail.
   // (Mathematically speaking, the rANS encoder should require an infinite
   // number of bits to encode this.)  You should never be able to read this
   // when reading from rANS.
-  RansRange(std::nullptr_t) : _start(0), _freq(0) { }
+  RansRange(std::nullptr_t) : _start(0), _freq(0) {}
   bool valid() const { return _freq; }
-  
+
   // use start(), freq() and SCALE_BITS when you call the rANS library.
   uint32_t start() const { return _start; }
   uint32_t freq() const { return _freq; }
 
   // Call the corresponding function in the rANS library.
-  void put(Rans64State* r, uint32_t** pptr) const
+  void put(Rans64State *r, uint32_t **pptr) const
   {
     Rans64EncPut(r, pptr, _start, _freq, SCALE_BITS);
   }
@@ -131,11 +137,11 @@ public:
   // this value.  (The symbol with the greatest start that is <= the
   // result of get().)  Create a RansRange for that symbol.  Finally call
   // advance() on that RansRange object.
-  static uint32_t get(uint32_t denominator, Rans64State* r)
+  static uint32_t get(uint32_t denominator, Rans64State *r)
   {
     return unScale(Rans64DecGet(r, SCALE_BITS), denominator);
   }
-  void advance(Rans64State* r, uint32_t** pptr) const
+  void advance(Rans64State *r, uint32_t **pptr) const
   {
     Rans64DecAdvance(r, pptr, _start, _freq, SCALE_BITS);
   }
@@ -167,7 +173,7 @@ public:
 class SymbolCounter
 {
 private:
-  std::vector< uint32_t > _freq;
+  std::vector<uint32_t> _freq;
   void ensureAtLeast(size_t newSize)
   {
     if (newSize > _freq.size())
@@ -180,10 +186,11 @@ private:
     {
       end += freq(i);
       if (position < end)
-	return i;
+        return i;
     }
     assert(false);
   }
+
 public:
   uint32_t freq(size_t symbol) const
   {
@@ -196,23 +203,23 @@ public:
   {
     ensureAtLeast(symbol + 1);
     _freq[symbol]++;
-    //if (_totals[0] > (RansRange::SCALE_END / 4))
-    //  reduceOld();
-    // TODO maybe return this or make someone else responsible.  I.e. maybe
-    // each block will always call increment some reasonable maximum number
-    // of times.  Someone else is already calling reduceOld() at the end of
-    // each block.
-    // NO -- The issue is not the max frequency of each item.  The issue
-    // is the total frequency that will we have to use as the denominator.
-    // TODO This class would be a great place to keep track of the total
-    // count in all of the entries, so we can automatically call reduceOld()
-    // when required.
-    // Issue:  This class was set up so you didn't have to state the maximum
-    // size in advance.  When we increment an item, we need to know the
-    // complete table size so we know the current denominator.  Right now we
-    // are fast and loose on the table size on purpose.  We probably need to
-    // set a max, or otherwise make sure that we do this consistently between
-    // the reader and the writer.
+    // if (_totals[0] > (RansRange::SCALE_END / 4))
+    //   reduceOld();
+    //  TODO maybe return this or make someone else responsible.  I.e. maybe
+    //  each block will always call increment some reasonable maximum number
+    //  of times.  Someone else is already calling reduceOld() at the end of
+    //  each block.
+    //  NO -- The issue is not the max frequency of each item.  The issue
+    //  is the total frequency that will we have to use as the denominator.
+    //  TODO This class would be a great place to keep track of the total
+    //  count in all of the entries, so we can automatically call reduceOld()
+    //  when required.
+    //  Issue:  This class was set up so you didn't have to state the maximum
+    //  size in advance.  When we increment an item, we need to know the
+    //  complete table size so we know the current denominator.  Right now we
+    //  are fast and loose on the table size on purpose.  We probably need to
+    //  set a max, or otherwise make sure that we do this consistently between
+    //  the reader and the writer.
   }
   RansRange getRange(size_t symbol, size_t symbolCount) const
   {
@@ -222,12 +229,12 @@ public:
     for (size_t i = 0; i < symbolCount; i++)
     {
       if (i == symbol)
-	start = total;
+        start = total;
       total += freq(i);
     }
     return RansRange(start, freq(symbol), total);
   }
-  size_t getSymbol(Rans64State* r, uint32_t** pptr, size_t symbolCount) const
+  size_t getSymbol(Rans64State *r, uint32_t **pptr, size_t symbolCount) const
   {
     uint32_t denominator = 0;
     for (size_t i = 0; i < symbolCount; i++)
@@ -235,7 +242,7 @@ public:
     // seems like some duplication of effort between the two versions of
     // getSymbol().  Maybe some room to make things faster.
     const size_t symbol =
-      getSymbol(RansRange::get(denominator, r), symbolCount);
+        getSymbol(RansRange::get(denominator, r), symbolCount);
     getRange(symbol, symbolCount).advance(r, pptr);
     return symbol;
   }
@@ -249,7 +256,7 @@ public:
   }
 
   // For debug use only.
-  std::vector< uint32_t > const &getDebugFrequencies() const { return _freq; }
+  std::vector<uint32_t> const &getDebugFrequencies() const { return _freq; }
 };
 
 //#include <iostream>
@@ -257,6 +264,7 @@ class BoolCounter
 {
 private:
   SymbolCounter _counter;
+
 public:
   void increment(bool value)
   {
@@ -266,27 +274,27 @@ public:
   {
     return _counter.getRange(value, 2);
   }
-  bool readValue(Rans64State* r, uint32_t** pptr) const
+  bool readValue(Rans64State *r, uint32_t **pptr) const
   {
     return _counter.getSymbol(r, pptr, 2);
   }
   void reduceOld()
   {
-    //const auto preFalseCount = _counter.getDebugFrequencies()[0];
-    //const auto preTrueCount = _counter.getDebugFrequencies()[1];
+    // const auto preFalseCount = _counter.getDebugFrequencies()[0];
+    // const auto preTrueCount = _counter.getDebugFrequencies()[1];
     _counter.reduceOld();
-    //const auto postFalseCount = _counter.getDebugFrequencies()[0];
-    //const auto postTrueCount = _counter.getDebugFrequencies()[1];
-    //std::cout<<"BoolCounter::reduceOld() "<<preFalseCount<<" vs. "
-    //     <<preTrueCount<<"  >>>  "<<postFalseCount<<" vs. "
-    //     <<postTrueCount<<std::endl;
+    // const auto postFalseCount = _counter.getDebugFrequencies()[0];
+    // const auto postTrueCount = _counter.getDebugFrequencies()[1];
+    // std::cout<<"BoolCounter::reduceOld() "<<preFalseCount<<" vs. "
+    //      <<preTrueCount<<"  >>>  "<<postFalseCount<<" vs. "
+    //      <<postTrueCount<<std::endl;
   }
 };
 
 inline bool isIntelByteOrder()
 {
   const uint64_t number = 0x0102030405060708lu;
-  char const *asByte = reinterpret_cast< char const * >(&number);
+  char const *asByte = reinterpret_cast<char const *>(&number);
   return (asByte[0] == 8) && (asByte[7] == 1);
 }
 

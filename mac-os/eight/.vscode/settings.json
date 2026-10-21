@@ -22,6 +22,7 @@
     "iterator": "cpp",
     "vector": "cpp",
     "algorithm": "cpp",
-    "RansBlockReader.C": "cpp"
+    "RansBlockReader.C": "cpp",
+    "iosfwd": "cpp"
   }
 }

@@ -23,7 +23,6 @@ const std::string preloadContents = "\xdc\xe4\xeb\xf1\xf6\xfa\xfd\xff";
 
 const int maxBufferSize = 8000;
 
-
 /////////////////////////////////////////////////////////////////////
 // DebugDump
 /////////////////////////////////////////////////////////////////////
@@ -33,58 +32,59 @@ class DebugDump
 private:
   void dumpChar(unsigned char ch, std::ostream &out)
   {
-    out<<'\'';
+    out << '\'';
     if ((ch < ' ') || (ch >= 127))
     { // Save and restore state:  https://stackoverflow.com/a/30968371/971955
       std::ios oldState(nullptr);
       oldState.copyfmt(out);
-      out<<"\\x"<<std::hex<<std::setw(2)<<std::setfill('0')<<(int)ch;
+      out << "\\x" << std::hex << std::setw(2) << std::setfill('0') << (int)ch;
       out.copyfmt(oldState);
     }
     else
     {
-      out<<ch;
+      out << ch;
     }
-    out<<'\'';
+    out << '\'';
   }
   std::map<char, int64_t> _trivialEncodeCount;
   std::map<int, int64_t> _jumpBackHowFar;
+
 public:
   void trivialEncode(char ch) { _trivialEncodeCount[ch]++; }
   void jumpBack(int howFar) { _jumpBackHowFar[howFar]++; }
   ~DebugDump()
   {
     auto &out = std::cerr;
-    out<<"[[DebugDump start]]"<<std::endl;
+    out << "[[DebugDump start]]" << std::endl;
     // This is completely unavoidable.  The first time we see a new byte, we
     // always do trivial encoding.
-    out<<"trivial encoding once:  ";
+    out << "trivial encoding once:  ";
     bool first = true;
     for (auto const &kvp : _trivialEncodeCount)
     {
       auto const count = kvp.second;
       if (count == 1)
       {
-	if (first)
-	  first = false;
-	else
-	  out<<", ";
-	dumpChar(kvp.first, out);
+        if (first)
+          first = false;
+        else
+          out << ", ";
+        dumpChar(kvp.first, out);
       }
     }
     if (first)
-      out<<"none";
-    out<<std::endl;
+      out << "none";
+    out << std::endl;
     int extras = 0;
     for (auto const &kvp : _trivialEncodeCount)
     {
       auto const count = kvp.second;
       if (count > 1)
       {
-	out<<"trivial encoding ";
-	dumpChar(kvp.first, out);
-	out<<' '<<count<<" times."<<std::endl;
-	extras += (count - 1);
+        out << "trivial encoding ";
+        dumpChar(kvp.first, out);
+        out << ' ' << count << " times." << std::endl;
+        extras += (count - 1);
       }
     }
     // I was concerned that the new JumpBack code would skip too many
@@ -94,8 +94,8 @@ public:
     // So far the results say that will not be necessary.  So far I have
     // seen very few extra encodings, and the total output size is almost
     // unchanged.
-    std::cout<<"A total of "<<extras<<" extra trivial encodings."<<std::endl;
-    
+    std::cout << "A total of " << extras << " extra trivial encodings." << std::endl;
+
     int jumpBackCount = 0;
     int jumpBackSavings = 0;
     for (auto const &kvp : _jumpBackHowFar)
@@ -112,20 +112,20 @@ public:
     {
       auto const stepsBack = kvp.first;
       auto const repeats = kvp.second;
-      auto const saved = (stepsBack-1) * repeats;
-      out<<"Jump Back by "<<stepsBack<<" steps "<<repeats<<" times to save "
-	 <<saved<<" comparisons, "<<(saved * 100.0 / jumpBackOriginal)
-	 <<'%'<<std::endl;
+      auto const saved = (stepsBack - 1) * repeats;
+      out << "Jump Back by " << stepsBack << " steps " << repeats << " times to save "
+          << saved << " comparisons, " << (saved * 100.0 / jumpBackOriginal)
+          << '%' << std::endl;
     }
-    out<<"Total Jump Back savings:  "<<jumpBackSavings<<", "
-       <<(jumpBackSavings * 100.0 / jumpBackOriginal)<<'%'<<std::endl;
-    
-    out<<"[[DebugDump end]]"<<std::endl;
+    out << "Total Jump Back savings:  " << jumpBackSavings << ", "
+        << (jumpBackSavings * 100.0 / jumpBackOriginal) << '%' << std::endl;
+
+    out << "[[DebugDump end]]" << std::endl;
 
     // TODO / bug:  On a really big input file the Jump Back statistics will
     // include negative numbers.  I'm not sure why.  I thought it was an
     // overflow, but switching to 64 bit integers didn't help.  ☹
-    
+
     /* Sample output:
 [phil@joey-mousepad test_data]$ ../eight Analyze3.C
 [[DebugDump start]]
@@ -143,7 +143,6 @@ Jump Back by 8 steps 14165 times to save 99155 comparisons, 0.180347%
 Total Jump Back savings:  1103588, 2.00725%
 [[DebugDump end]]
     */
-    
   }
 };
 
@@ -156,7 +155,7 @@ static DebugDump debugDump;
 inline int64_t HistorySummary::getContext(char const *ptr)
 {
   char const *context = ptr - 8;
-  return *reinterpret_cast< int64_t const * >(context);
+  return *reinterpret_cast<int64_t const *>(context);
 }
 
 inline int HistorySummary::matchingByteCount(int64_t a, int64_t b)
@@ -185,11 +184,11 @@ HistorySummary::HistorySummary(char const *begin, char const *end)
   assert(maxBufferSize < 0xffff);
   uint16_t byteVsContextLengthToByteCount[9][256];
   memset(byteVsContextLengthToByteCount, 0,
-	 sizeof(byteVsContextLengthToByteCount));
-  for (char const *compareTo = end - 1; compareTo >= begin; )
+         sizeof(byteVsContextLengthToByteCount));
+  for (char const *compareTo = end - 1; compareTo >= begin;)
   {
     auto const count =
-      matchingByteCount(initialContext, getContext(compareTo));
+        matchingByteCount(initialContext, getContext(compareTo));
     byteVsContextLengthToByteCount[count][(unsigned char)*compareTo]++;
     auto const howFar = jumpBackSummary.howFar(count);
     compareTo -= howFar;
@@ -238,9 +237,9 @@ HistorySummary::HistorySummary(char const *begin, char const *end)
       count += byteVsContextLengthToByteCount[matchLength][i];
     if (count > 0)
     {
-      const uint64_t weight = (1ul<<62) / (1<<(8 - matchLength)) / count;
+      const uint64_t weight = (1ul << 62) / (1 << (8 - matchLength)) / count;
       for (int i = 0; i < 256; i++)
-	totals[i] += byteVsContextLengthToByteCount[matchLength][i] * weight;
+        totals[i] += byteVsContextLengthToByteCount[matchLength][i] * weight;
     }
   }
   uint64_t grandTotal = 0;
@@ -256,7 +255,7 @@ HistorySummary::HistorySummary(char const *begin, char const *end)
   }
   _denominator = 0;
   for (int i = 0; i < 256; i++)
-    _denominator += _frequencies[i] = totals[i]>>reduceBy;
+    _denominator += _frequencies[i] = totals[i] >> reduceBy;
 }
 
 bool HistorySummary::canEncode(char toEncode) const
@@ -270,8 +269,8 @@ RansRange HistorySummary::encode(char toEncode) const
   for (int index = 0; index < (unsigned char)toEncode; index++)
     before += _frequencies[index];
   return RansRange(before,
-		   _frequencies[(unsigned char)toEncode],
-		   _denominator);
+                   _frequencies[(unsigned char)toEncode],
+                   _denominator);
 }
 
 char HistorySummary::getAndAdvance(RansBlockReader &source) const
@@ -296,25 +295,26 @@ char HistorySummary::getAndAdvance(RansBlockReader &source) const
   }
 }
 
-
 /////////////////////////////////////////////////////////////////////
 // TopLevel
 /////////////////////////////////////////////////////////////////////
 
-TopLevel::TopLevel() : _counter(-1) { }
+TopLevel::TopLevel() : _counter(-1) {}
 
 void TopLevel::encode(char toEncode,
-		      HistorySummary const &historySummary,
-		      RansBlockWriter &writer)
+                      HistorySummary const &historySummary,
+                      RansBlockWriter &writer)
 {
   if (_counter == -1)
-  { // Silly optimization.  We know 100% that the first byte will be trivially
+  { // Small optimization.  We know 100% that the first byte will be trivially
     // encoded, so why go through the work and why store anything in the file.
     // Just jump directly to the trivialEncode() step.
     trivialEncode(toEncode, writer);
   }
   else
   {
+    Method method;
+    
     const bool smart = historySummary.canEncode(toEncode);
     writer.write(_smartCount.getRange(smart));
     _smartCount.increment(smart);
@@ -337,8 +337,8 @@ void TopLevel::encode(char toEncode,
 }
 
 char TopLevel::decode(char const *begin,
-		      char const *end,
-		      RansBlockReader &reader)
+                      char const *end,
+                      RansBlockReader &reader)
 {
   bool smart;
   if (_counter == -1)
@@ -371,8 +371,5 @@ void TopLevel::trivialEncode(char toEncode, RansBlockWriter &writer)
 char TopLevel::trivialDecode(RansBlockReader &reader)
 {
   reader.eof();
-  const unsigned char result = reader.get(256);
-  reader.advance(RansRange((unsigned char)result, 1, 256));
-  return result;
+  return reader.getWithEqualWeights(256);
 }
-

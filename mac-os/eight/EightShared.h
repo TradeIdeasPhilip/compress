@@ -69,9 +69,8 @@ public:
 class TopLevel
 {
 private:
-  static const bool TRIVIAL = false;
-  static const bool SMART = true;  
-  BoolCounter _smartCount;
+  enum Method { SlidingWindowMethod, HistorySummaryMethod, TrivialMethod, METHOD_COUNT };
+  SymbolCounter _methodCounter;
 
   int _counter;
   

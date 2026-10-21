@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "EightShared.C": "cpp",
+    "Eight.C": "cpp",
+    "mmap.C": "cpp"
+  }
+}
